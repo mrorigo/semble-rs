@@ -156,7 +156,6 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::PathBuf;
 
     use tempfile::tempdir;
 
@@ -169,6 +168,6 @@ mod tests {
         fs::write(root.join("main.rs"), "fn main() {}\n").expect("write");
         fs::write(root.join("notes.txt"), "ignored\n").expect("write");
         let files = walk_files(root, &[".rs".to_string()]);
-        assert_eq!(files, vec![PathBuf::from(root.join("main.rs"))]);
+        assert_eq!(files, vec![root.join("main.rs")]);
     }
 }

@@ -168,9 +168,13 @@ impl StaticModel {
 
 impl Encoder for StaticModel {
     fn encode(&self, texts: &[String]) -> Vec<[f32; EMBED_DIM]> {
+        use rayon::prelude::*;
         match self.backend.as_ref() {
-            ModelBackend::Real(model) => texts.iter().map(|text| model.encode_text(text)).collect(),
-            ModelBackend::Hashing => texts.iter().map(|text| hash_embed_text(text)).collect(),
+            ModelBackend::Real(model) => texts
+                .par_iter()
+                .map(|text| model.encode_text(text))
+                .collect(),
+            ModelBackend::Hashing => texts.par_iter().map(|text| hash_embed_text(text)).collect(),
         }
     }
 }

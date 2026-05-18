@@ -28,33 +28,36 @@ pub fn create_index_from_path(
         path.display(),
         include_text_files
     ));
-    let mut chunks = Vec::new();
     let exts = get_extensions(include_text_files, extensions);
     let files = walk_files(path, &exts);
-    trace(format!(
-        "walk_files discovered {} candidate files",
-        files.len()
-    ));
-    for file_path in files {
-        if let Ok(meta) = fs::metadata(&file_path)
-            && meta.len() > 1_000_000
-        {
-            continue;
-        }
-        let source = match fs::read_to_string(&file_path) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        let rel = display_root
-            .and_then(|root| file_path.strip_prefix(root).ok())
-            .unwrap_or(&file_path);
-        let language = detect_language(&file_path);
-        chunks.extend(chunk_source(
-            &source,
-            &rel.to_string_lossy(),
-            language.as_deref(),
-        ));
-    }
+
+    use rayon::prelude::*;
+
+    let chunks: Vec<Chunk> = files
+        .into_par_iter()
+        .filter_map(|file_path| {
+            if let Ok(meta) = fs::metadata(&file_path)
+                && meta.len() > 1_000_000
+            {
+                return None;
+            }
+            let source = match fs::read_to_string(&file_path) {
+                Ok(s) => s,
+                Err(_) => return None,
+            };
+            let rel = display_root
+                .and_then(|root| file_path.strip_prefix(root).ok())
+                .unwrap_or(&file_path);
+            let language = detect_language(&file_path);
+            Some(chunk_source(
+                &source,
+                &rel.to_string_lossy(),
+                language.as_deref(),
+            ))
+        })
+        .flatten()
+        .collect();
+
     if chunks.is_empty() {
         return Err(format!(
             "No supported files found under {}.",
