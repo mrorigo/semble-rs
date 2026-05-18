@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process;
 
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 
 use crate::index::SembleIndex;
 use crate::mcp::serve;
@@ -37,8 +37,8 @@ enum Command {
         path: Option<String>,
         #[arg(short = 'k', long = "top-k", default_value_t = 5)]
         top_k: usize,
-        #[arg(short = 'm', long = "mode", default_value = "hybrid")]
-        mode: String,
+        #[arg(short = 'm', long = "mode", value_enum, default_value_t = SearchModeArg::Hybrid)]
+        mode: SearchModeArg,
         #[arg(long = "include-text-files")]
         include_text_files: bool,
     },
@@ -122,7 +122,7 @@ fn cli_main() {
                     process::exit(1);
                 }
             };
-            let mode = parse_mode(&mode);
+            let mode: SearchMode = mode.into();
             let results = index.search(&query, top_k, mode, None, None, None);
             if results.is_empty() {
                 println!("No results found.");
@@ -176,11 +176,20 @@ fn cli_main() {
     }
 }
 
-fn parse_mode(mode: &str) -> SearchMode {
-    match mode {
-        "semantic" => SearchMode::Semantic,
-        "bm25" => SearchMode::Bm25,
-        _ => SearchMode::Hybrid,
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+enum SearchModeArg {
+    Hybrid,
+    Semantic,
+    Bm25,
+}
+
+impl From<SearchModeArg> for SearchMode {
+    fn from(value: SearchModeArg) -> Self {
+        match value {
+            SearchModeArg::Hybrid => SearchMode::Hybrid,
+            SearchModeArg::Semantic => SearchMode::Semantic,
+            SearchModeArg::Bm25 => SearchMode::Bm25,
+        }
     }
 }
 
