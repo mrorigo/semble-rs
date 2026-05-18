@@ -23,11 +23,18 @@ pub fn create_index_from_path(
     ),
     String,
 > {
-    trace(format!("create_index_from_path root={} include_text_files={}", path.display(), include_text_files));
+    trace(format!(
+        "create_index_from_path root={} include_text_files={}",
+        path.display(),
+        include_text_files
+    ));
     let mut chunks = Vec::new();
     let exts = get_extensions(include_text_files, extensions);
     let files = walk_files(path, &exts);
-    trace(format!("walk_files discovered {} candidate files", files.len()));
+    trace(format!(
+        "walk_files discovered {} candidate files",
+        files.len()
+    ));
     for file_path in files {
         if let Ok(meta) = fs::metadata(&file_path)
             && meta.len() > 1_000_000

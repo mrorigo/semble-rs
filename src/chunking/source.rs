@@ -1,4 +1,6 @@
-use crate::chunking::core::{boundaries_to_chunks, chunk_lines as core_chunk_lines, is_supported_language};
+use crate::chunking::core::{
+    boundaries_to_chunks, chunk_lines as core_chunk_lines, is_supported_language,
+};
 use crate::chunking::tree_sitter::chunk as tree_sitter_chunk;
 use crate::types::Chunk;
 

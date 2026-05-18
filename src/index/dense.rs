@@ -1,6 +1,8 @@
 use crate::types::EMBED_DIM;
 
-pub use crate::index::model::{StaticModel, embed_chunks, hash_embed_text as embed_text, load_model};
+pub use crate::index::model::{
+    StaticModel, embed_chunks, hash_embed_text as embed_text, load_model,
+};
 
 #[derive(Debug, Clone)]
 pub struct SelectableBasicBackend {

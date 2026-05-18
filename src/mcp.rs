@@ -273,7 +273,10 @@ pub async fn serve(
     ref_name: Option<String>,
     include_text_files: bool,
 ) -> SdkResult<()> {
-    trace(format!("starting MCP server path={:?} ref_name={:?} include_text_files={}", path, ref_name, include_text_files));
+    trace(format!(
+        "starting MCP server path={:?} ref_name={:?} include_text_files={}",
+        path, ref_name, include_text_files
+    ));
     let server_details = InitializeResult {
         server_info: Implementation {
             name: "semble".into(),

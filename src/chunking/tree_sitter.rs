@@ -1,7 +1,6 @@
 use tree_sitter::{Language, Node, Parser};
 
-use crate::chunking::core::{chunk_lines, ChunkBoundary};
-
+use crate::chunking::core::{ChunkBoundary, chunk_lines};
 
 const STRUCTURAL_MULTIPLIER: usize = 2;
 
@@ -66,7 +65,8 @@ fn collect_boundaries(node: Node, desired_length: usize, out: &mut Vec<ChunkBoun
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
         saw_named_child = true;
-        if child.end_byte().saturating_sub(child.start_byte()) > desired_length * STRUCTURAL_MULTIPLIER
+        if child.end_byte().saturating_sub(child.start_byte())
+            > desired_length * STRUCTURAL_MULTIPLIER
             && child.named_child_count() > 0
         {
             collect_boundaries(child, desired_length, out);
@@ -86,7 +86,10 @@ fn collect_boundaries(node: Node, desired_length: usize, out: &mut Vec<ChunkBoun
     }
 }
 
-fn merge_boundaries(mut boundaries: Vec<ChunkBoundary>, desired_length: usize) -> Vec<ChunkBoundary> {
+fn merge_boundaries(
+    mut boundaries: Vec<ChunkBoundary>,
+    desired_length: usize,
+) -> Vec<ChunkBoundary> {
     let mut merged = Vec::new();
     let mut current: Option<ChunkBoundary> = None;
 

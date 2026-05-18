@@ -30,9 +30,8 @@ pub fn detect_language(path: &Path) -> Option<String> {
 
 pub fn get_extensions(include_text_files: bool, additional: Option<&[&str]>) -> Vec<String> {
     let mut exts: BTreeSet<String> = [
-        ".rs", ".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts",
-        ".java", ".go", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx",
-        ".rb",
+        ".rs", ".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".java", ".go",
+        ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx", ".rb",
     ]
     .into_iter()
     .map(String::from)

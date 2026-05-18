@@ -6,12 +6,13 @@ use clap::{CommandFactory, Parser, Subcommand};
 
 use crate::index::SembleIndex;
 use crate::mcp::serve;
+use crate::model_install::{DEFAULT_MODEL_ID, ensure_model_installed};
 use crate::stats::format_savings_report;
 use crate::types::SearchMode;
 use crate::utils::{format_results, is_git_url, resolve_chunk, trace};
 
 const CLAUDE_FILE_PATH: &str = ".claude/agents/semble-search.md";
-const CLI_DISPATCH_ARGS: [&str; 5] = ["search", "find-related", "init", "savings", "-h"];
+const CLI_DISPATCH_ARGS: [&str; 6] = ["search", "find-related", "init", "savings", "model", "-h"];
 
 #[derive(Parser)]
 #[command(name = "semble", about = "Instant local code search for agents.")]
@@ -58,6 +59,20 @@ enum Command {
         #[arg(long)]
         verbose: bool,
     },
+    Model {
+        #[command(subcommand)]
+        command: ModelCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelCommand {
+    Install {
+        #[arg(long)]
+        force: bool,
+        #[arg(long)]
+        model_id: Option<String>,
+    },
 }
 
 pub fn main() {
@@ -72,7 +87,10 @@ pub fn main() {
 
 fn mcp_main() {
     let args = McpArgs::parse();
-    trace(format!("starting MCP mode path={:?} ref={:?} include_text_files={}", args.path, args.ref_name, args.include_text_files));
+    trace(format!(
+        "starting MCP mode path={:?} ref={:?} include_text_files={}",
+        args.path, args.ref_name, args.include_text_files
+    ));
     let runtime = tokio::runtime::Runtime::new().expect("create tokio runtime");
     if let Err(err) = runtime.block_on(serve(args.path, args.ref_name, args.include_text_files)) {
         eprintln!("{}", err);
@@ -86,6 +104,9 @@ fn cli_main() {
     match args.command {
         Some(Command::Init { force }) => run_init(force),
         Some(Command::Savings { verbose }) => print!("{}", format_savings_report(None, verbose)),
+        Some(Command::Model { command }) => match command {
+            ModelCommand::Install { force, model_id } => run_model_install(force, model_id),
+        },
         Some(Command::Search {
             query,
             path,
@@ -189,4 +210,19 @@ pub fn run_init(force: bool) {
     }
     fs::write(&dest, include_str!("../assets/semble-search.md")).expect("write agent file");
     println!("Created {}", dest.display());
+}
+
+fn run_model_install(force: bool, model_id: Option<String>) {
+    let model_id = model_id.unwrap_or_else(|| DEFAULT_MODEL_ID.to_string());
+    match ensure_model_installed(&model_id, force) {
+        Ok(path) => println!(
+            "Installed model assets for {} at {}",
+            model_id,
+            path.display()
+        ),
+        Err(err) => {
+            eprintln!("{}", err);
+            process::exit(1);
+        }
+    }
 }

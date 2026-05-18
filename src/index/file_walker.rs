@@ -18,7 +18,11 @@ const DEFAULT_IGNORED_DIRS: &[&str] = &[
 ];
 
 pub fn walk_files(root: &Path, extensions: &[String]) -> Vec<PathBuf> {
-    trace(format!("walk_files root={} extensions={:?}", root.display(), extensions));
+    trace(format!(
+        "walk_files root={} extensions={:?}",
+        root.display(),
+        extensions
+    ));
     let mut out = Vec::new();
     let mut patterns = extensions
         .iter()

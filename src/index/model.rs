@@ -4,11 +4,13 @@ use std::sync::Arc;
 
 use tokenizers::Tokenizer;
 
+use crate::model_install::{
+    DEFAULT_MODEL_ID, ensure_model_installed, model_cache_dir, read_manifest,
+};
 use crate::types::{Chunk, EMBED_DIM, Encoder};
 use crate::utils::trace;
 
 const DEFAULT_MODEL_DIR: &str = "assets/model";
-const DEFAULT_MODEL_ID: &str = "minishlab/potion-code-16M";
 const DEFAULT_TOKENIZER_FILENAME: &str = "tokenizer.json";
 const DEFAULT_EMBEDDINGS_FILENAME: &str = "embeddings.bin";
 const DEFAULT_WEIGHTS_FILENAME: &str = "weights.bin";
@@ -44,8 +46,20 @@ impl BinaryStaticModel {
         let embeddings_path = dir.join(DEFAULT_EMBEDDINGS_FILENAME);
         let weights_path = dir.join(DEFAULT_WEIGHTS_FILENAME);
 
-        let tokenizer = Tokenizer::from_file(&tokenizer_path)
-            .map_err(|err| format!("failed to load tokenizer {}: {err}", tokenizer_path.display()))?;
+        let tokenizer = Tokenizer::from_file(&tokenizer_path).map_err(|err| {
+            format!(
+                "failed to load tokenizer {}: {err}",
+                tokenizer_path.display()
+            )
+        })?;
+        if let Ok(manifest) = read_manifest(dir)
+            && manifest.embedding_dim != EMBED_DIM
+        {
+            return Err(format!(
+                "manifest embedding_dim {} does not match expected {}",
+                manifest.embedding_dim, EMBED_DIM
+            ));
+        }
         let embeddings = read_f32_file(&embeddings_path)?;
         let token_weights = read_f32_file(&weights_path)?;
         if embeddings.is_empty() {
@@ -104,7 +118,12 @@ impl BinaryStaticModel {
             let Some(row) = self.row(token_id) else {
                 continue;
             };
-            let weight = self.token_weights.get(token_id).copied().unwrap_or(1.0).max(0.0);
+            let weight = self
+                .token_weights
+                .get(token_id)
+                .copied()
+                .unwrap_or(1.0)
+                .max(0.0);
             if weight == 0.0 {
                 continue;
             }
@@ -129,12 +148,7 @@ impl StaticModel {
         let model_ref = model_ref.as_ref();
         match resolve_model_dir(model_ref).and_then(|dir| BinaryStaticModel::load(&dir)) {
             Ok(model) => {
-                trace(format!(
-                    "loaded real semantic model from {}",
-                    resolve_model_dir(model_ref)
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_else(|_| model_ref.to_string())
-                ));
+                trace(format!("loaded real semantic model from {}", model_ref));
                 Self {
                     backend: Arc::new(ModelBackend::Real(Box::new(model))),
                 }
@@ -187,6 +201,7 @@ fn resolve_model_dir(model_ref: &str) -> Result<PathBuf, String> {
             None
         },
         Some(manifest_dir.join(DEFAULT_MODEL_DIR)),
+        Some(model_cache_dir(model_ref)),
         Some(manifest_dir.join("assets")),
     ];
 
@@ -197,6 +212,11 @@ fn resolve_model_dir(model_ref: &str) -> Result<PathBuf, String> {
         if embeddings.exists() && weights.exists() && tokenizer.exists() {
             return Ok(candidate);
         }
+    }
+
+    if should_auto_install(model_ref) {
+        let installed = ensure_model_installed(model_ref, false)?;
+        return Ok(installed);
     }
 
     Err(format!(
@@ -251,6 +271,12 @@ pub fn hash_embed_text(text: &str) -> [f32; EMBED_DIM] {
     }
     normalize(&mut vec);
     vec
+}
+
+fn should_auto_install(model_ref: &str) -> bool {
+    !Path::new(model_ref).exists()
+        && !Path::new(model_ref).is_file()
+        && !Path::new(model_ref).is_dir()
 }
 
 #[cfg(test)]

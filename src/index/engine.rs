@@ -87,7 +87,10 @@ impl SembleIndex {
         extensions: Option<&[&str]>,
         include_text_files: bool,
     ) -> Result<Self, String> {
-        trace(format!("SembleIndex::from_git url={} ref={:?}", url, ref_name));
+        trace(format!(
+            "SembleIndex::from_git url={} ref={:?}",
+            url, ref_name
+        ));
         let tmp = tempfile::tempdir().map_err(|e| e.to_string())?;
         let clone_path = tmp.path().to_path_buf();
         let mut cmd = Command::new("git");
