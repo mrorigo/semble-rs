@@ -8,7 +8,7 @@ It is designed as a practical CLI and MCP server for local repositories and git 
 
 - Native Rust binary with no Python runtime required at execution time
 - Semantic search backed by exported `model2vec` assets
-- Tree-sitter chunking for structural code boundaries
+- Tree-sitter chunking for structural code boundaries, including Markdown
 - BM25 lexical retrieval for exact identifier matches
 - Hybrid ranking with reranking heuristics for code search
 - CLI and MCP server support
@@ -170,6 +170,7 @@ Code is chunked with Tree-sitter for supported languages:
 - Go
 - C
 - C++
+- Markdown
 
 Unsupported languages fall back to line-based chunking.
 

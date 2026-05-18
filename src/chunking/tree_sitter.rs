@@ -26,14 +26,15 @@ pub fn chunk(source: &str, language: &str, desired_length: usize) -> Vec<ChunkBo
 fn parser_for(language: &str) -> Option<Parser> {
     let mut parser = Parser::new();
     let lang: Language = match language {
-        "rust" => tree_sitter_rust::language(),
-        "python" => tree_sitter_python::language(),
-        "javascript" => tree_sitter_javascript::language(),
-        "typescript" => tree_sitter_typescript::language_typescript(),
-        "java" => tree_sitter_java::language(),
-        "go" => tree_sitter_go::language(),
-        "c" => tree_sitter_c::language(),
-        "cpp" => tree_sitter_cpp::language(),
+        "rust" => tree_sitter_rust::LANGUAGE.into(),
+        "python" => tree_sitter_python::LANGUAGE.into(),
+        "javascript" => tree_sitter_javascript::LANGUAGE.into(),
+        "typescript" => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        "java" => tree_sitter_java::LANGUAGE.into(),
+        "go" => tree_sitter_go::LANGUAGE.into(),
+        "c" => tree_sitter_c::LANGUAGE.into(),
+        "cpp" => tree_sitter_cpp::LANGUAGE.into(),
+        "markdown" => tree_sitter_md::LANGUAGE.into(),
         _ => return None,
     };
     if parser.set_language(&lang).is_err() {
@@ -142,6 +143,16 @@ fn is_structural(kind: &str) -> bool {
             | "source_file"
             | "module"
             | "translation_unit"
+            | "document"
+            | "section"
+            | "atx_heading"
+            | "setext_heading"
+            | "paragraph"
+            | "fenced_code_block"
+            | "indented_code_block"
+            | "list"
+            | "list_item"
+            | "block_quote"
     )
 }
 
@@ -177,6 +188,25 @@ function second() {
 }
 "#;
         let boundaries = chunk(source, "javascript", 30);
+        assert!(!boundaries.is_empty());
+    }
+
+    #[test]
+    fn chunks_markdown_source_structurally() {
+        let source = r#"# Title
+
+Intro paragraph.
+
+## Section
+
+- item one
+- item two
+
+```rust
+fn example() {}
+```
+"#;
+        let boundaries = chunk(source, "markdown", 30);
         assert!(!boundaries.is_empty());
     }
 }
