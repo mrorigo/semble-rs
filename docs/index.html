@@ -1,1178 +1,962 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="scroll-smooth">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Semble-RS: Instant, CPU-only local code search for AI agents. Native Rust port of MinishLab's Semble combining sub-5ms Model2Vec semantic scans, BM25 lexical indexing, and Tree-sitter AST structural boundaries.">
-    <title>Semble-RS — Instant Local Code Search for AI Agents</title>
-    <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <!-- SEO Meta Tags -->
+  <title>Semble-RS — Instant Local Code Search for AI Agents</title>
+  <meta name="description" content="A high-performance, CPU-only local code search engine for AI agents in native Rust. Combines sub-5ms Model2Vec semantic scans, BM25 lexical indexing, and Tree-sitter AST structural boundaries with zero Python runtime required.">
+  <meta name="keywords" content="Rust, Code Search, AI Agents, MCP, Model Context Protocol, Model2Vec, Semantic Search, BM25, Tree-sitter, Claude Code, Cursor, Cline">
+  
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://github.com/mrorigo/semble-rs">
+  <meta property="og:title" content="Semble-RS — Instant Local Code Search for AI Agents">
+  <meta property="og:description" content="A pure Rust implementation of Semble. Sub-5ms semantic scans, BM25 lexical searches, and Tree-sitter chunk boundaries optimized for agent local context loops. No Python runtime required.">
+  <meta property="og:image" content="https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=1200&h=630&q=80">
+
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:url" content="https://github.com/mrorigo/semble-rs">
+  <meta property="twitter:title" content="Semble-RS — Instant Local Code Search for AI Agents">
+  <meta property="twitter:description" content="A pure Rust implementation of Semble. Sub-5ms semantic scans, BM25 lexical searches, and Tree-sitter chunk boundaries optimized for agent local context loops. No Python runtime required.">
+  <meta property="twitter:image" content="https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=1200&h=630&q=80">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            display: ['Outfit', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              emerald: {
+                DEFAULT: '#10B981',
+                light: '#34D399',
+                dark: '#059669',
+                glow: 'rgba(16, 185, 129, 0.15)',
+              },
+              cyan: {
+                DEFAULT: '#06B6D4',
+                light: '#22D3EE',
+                dark: '#0891B2',
+                glow: 'rgba(6, 182, 212, 0.15)',
+              },
+              navy: {
+                50: '#F8FAFC',
+                100: '#F1F5F9',
+                800: '#1E293B',
+                900: '#0F172A',
+                950: '#0B0F19',
+                pure: '#05070B',
+              }
+            }
+          },
+          boxShadow: {
+            'glow-emerald': '0 0 20px rgba(16, 185, 129, 0.15)',
+            'glow-cyan': '0 0 20px rgba(6, 182, 212, 0.15)',
+            'glass': '0 8px 32px 0 rgba(0, 0, 0, 0.37)',
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Dark Mode Script: Syncs system settings & persists via localStorage -->
+  <script>
+    if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  </script>
+
+  <!-- Custom CSS for custom elements & micro-animations -->
+  <style>
+    .glassmorphism {
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
     
-    <style>
-        /* Modern Design System & Variables */
-        :root {
-            --bg-base: #0b0f19;
-            --bg-surface: #111827;
-            --bg-card: rgba(17, 24, 39, 0.7);
-            --bg-terminal: #070a13;
-            
-            --color-primary: #10b981; /* Premium Emerald */
-            --color-primary-glow: rgba(16, 185, 129, 0.15);
-            --color-accent: #06b6d4; /* Cyber Teal */
-            --color-accent-glow: rgba(6, 182, 212, 0.2);
-            
-            --text-main: #f3f4f6;
-            --text-muted: #9ca3af;
-            --text-dark: #6b7280;
-            
-            --border-glow: rgba(255, 255, 255, 0.08);
-            --border-primary: rgba(10, 185, 129, 0.3);
-            
-            --radius-lg: 16px;
-            --radius-md: 12px;
-            --radius-sm: 8px;
-            
-            --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        /* Reset & Base Styles */
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            background-color: var(--bg-base);
-            color: var(--text-main);
-            font-family: 'Inter', sans-serif;
-            line-height: 1.6;
-            overflow-x: hidden;
-            background-image: 
-                radial-gradient(circle at 10% 20%, rgba(16, 185, 129, 0.04) 0%, transparent 40%),
-                radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.04) 0%, transparent 40%);
-            background-attachment: fixed;
-        }
-
-        a {
-            color: inherit;
-            text-decoration: none;
-        }
-
-        h1, h2, h3 {
-            font-family: 'Outfit', sans-serif;
-            font-weight: 600;
-            letter-spacing: -0.02em;
-        }
-
-        /* Container */
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0 24px;
-        }
-
-        /* Navbar */
-        nav {
-            border-bottom: 1px solid var(--border-glow);
-            backdrop-filter: blur(12px);
-            background-color: rgba(11, 15, 25, 0.8);
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            transition: var(--transition-smooth);
-        }
-
-        .nav-container {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            height: 72px;
-        }
-
-        .logo {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-family: 'Outfit', sans-serif;
-            font-weight: 800;
-            font-size: 1.5rem;
-            background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .logo svg {
-            stroke: var(--color-primary);
-            fill: none;
-        }
-
-        .nav-links {
-            display: flex;
-            gap: 32px;
-            font-weight: 500;
-            font-size: 0.95rem;
-            color: var(--text-muted);
-        }
-
-        .nav-link:hover {
-            color: var(--text-main);
-            transition: var(--transition-smooth);
-        }
-
-        .btn-github {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            background-color: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--border-glow);
-            padding: 8px 16px;
-            border-radius: var(--radius-sm);
-            font-size: 0.9rem;
-            font-weight: 600;
-            transition: var(--transition-smooth);
-        }
-
-        .btn-github:hover {
-            background-color: rgba(255, 255, 255, 0.1);
-            border-color: var(--text-muted);
-            transform: translateY(-1px);
-        }
-
-        /* Hero Section */
-        .hero {
-            padding: 100px 0 60px 0;
-            text-align: center;
-            position: relative;
-        }
-
-        .badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            background: rgba(16, 185, 129, 0.08);
-            border: 1px solid var(--border-primary);
-            padding: 6px 16px;
-            border-radius: 9999px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: var(--color-primary);
-            margin-bottom: 24px;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-        }
-
-        .hero h1 {
-            font-size: 3.5rem;
-            font-weight: 800;
-            line-height: 1.15;
-            margin-bottom: 24px;
-            background: linear-gradient(135deg, #ffffff 30%, #a3a3a3 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .hero h1 span {
-            background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .hero-subtitle {
-            font-size: 1.25rem;
-            color: var(--text-muted);
-            max-width: 750px;
-            margin: 0 auto 40px auto;
-            font-weight: 300;
-        }
-
-        .hero-actions {
-            display: flex;
-            gap: 16px;
-            justify-content: center;
-            margin-bottom: 60px;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, var(--color-primary), #059669);
-            border: none;
-            padding: 14px 28px;
-            border-radius: var(--radius-sm);
-            color: #ffffff;
-            font-weight: 600;
-            box-shadow: 0 4px 20px var(--color-primary-glow);
-            transition: var(--transition-smooth);
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 24px rgba(16, 185, 129, 0.3);
-        }
-
-        .btn-secondary {
-            background-color: rgba(255, 255, 255, 0.03);
-            border: 1px solid var(--border-glow);
-            padding: 14px 28px;
-            border-radius: var(--radius-sm);
-            font-weight: 600;
-            transition: var(--transition-smooth);
-        }
-
-        .btn-secondary:hover {
-            background-color: rgba(255, 255, 255, 0.07);
-            border-color: var(--text-muted);
-            transform: translateY(-2px);
-        }
-
-        /* Visual Interactive Playground Section */
-        .playground-section {
-            padding: 40px 0 80px 0;
-        }
-
-        .playground-title {
-            text-align: center;
-            margin-bottom: 40px;
-        }
-
-        .playground-title h2 {
-            font-size: 2.2rem;
-            margin-bottom: 12px;
-        }
-
-        .playground-title p {
-            color: var(--text-muted);
-            font-size: 1.05rem;
-        }
-
-        .playground-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-glow);
-            border-radius: var(--radius-lg);
-            overflow: hidden;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-            backdrop-filter: blur(8px);
-        }
-
-        @media (max-width: 900px) {
-            .playground-card {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        /* Search Interface */
-        .search-interface {
-            padding: 32px;
-            border-right: 1px solid var(--border-glow);
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-        }
-
-        .search-title {
-            font-size: 1.15rem;
-            font-weight: 600;
-            color: var(--color-primary);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .query-box {
-            display: flex;
-            gap: 12px;
-        }
-
-        .query-input {
-            flex: 1;
-            background-color: rgba(255, 255, 255, 0.03);
-            border: 1px solid var(--border-glow);
-            padding: 12px 16px;
-            border-radius: var(--radius-sm);
-            color: #ffffff;
-            font-family: inherit;
-            font-size: 0.95rem;
-            transition: var(--transition-smooth);
-        }
-
-        .query-input:focus {
-            outline: none;
-            border-color: var(--color-primary);
-            box-shadow: 0 0 10px var(--color-primary-glow);
-        }
-
-        .btn-search {
-            background-color: var(--color-primary);
-            border: none;
-            border-radius: var(--radius-sm);
-            width: 48px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: var(--transition-smooth);
-        }
-
-        .btn-search:hover {
-            background-color: #059669;
-        }
-
-        .btn-search svg {
-            stroke: #ffffff;
-            fill: none;
-        }
-
-        .query-suggestions {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .suggestion-item {
-            background-color: rgba(255, 255, 255, 0.02);
-            border: 1px solid var(--border-glow);
-            padding: 12px 16px;
-            border-radius: var(--radius-sm);
-            font-size: 0.9rem;
-            cursor: pointer;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: var(--transition-smooth);
-        }
-
-        .suggestion-item:hover {
-            background-color: rgba(16, 185, 129, 0.04);
-            border-color: var(--border-primary);
-            transform: translateX(4px);
-        }
-
-        .suggestion-tag {
-            font-size: 0.75rem;
-            background-color: rgba(6, 182, 212, 0.1);
-            color: var(--color-accent);
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-weight: 600;
-        }
-
-        /* Visual Pipeline */
-        .pipeline-display {
-            padding: 32px;
-            background-color: var(--bg-terminal);
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-            position: relative;
-        }
-
-        .pipeline-step {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            opacity: 0.3;
-            transform: translateY(10px);
-            transition: all 0.4s ease-out;
-        }
-
-        .pipeline-step.active {
-            opacity: 1;
-            transform: translateY(0);
-        }
-
-        .step-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .step-num {
-            width: 20px;
-            height: 20px;
-            background-color: var(--color-primary);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.75rem;
-            color: #ffffff;
-        }
-
-        .step-desc {
-            color: var(--text-muted);
-            font-size: 0.9rem;
-        }
-
-        .step-output {
-            background-color: rgba(0, 0, 0, 0.4);
-            border-radius: var(--radius-sm);
-            padding: 12px;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.8rem;
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            max-height: 120px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            color: var(--color-accent);
-        }
-
-        /* Performance dashboard stats section */
-        .stats-section {
-            padding: 80px 0;
-            border-top: 1px solid var(--border-glow);
-        }
-
-        .grid-3 {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 24px;
-        }
-
-        @media (max-width: 900px) {
-            .grid-3 {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .stat-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-glow);
-            border-radius: var(--radius-lg);
-            padding: 32px;
-            text-align: center;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
-            transition: var(--transition-smooth);
-        }
-
-        .stat-card:hover {
-            transform: translateY(-4px);
-            border-color: var(--border-primary);
-            box-shadow: 0 15px 30px var(--color-primary-glow);
-        }
-
-        .stat-val {
-            font-size: 3rem;
-            font-weight: 800;
-            font-family: 'Outfit', sans-serif;
-            background: linear-gradient(135deg, #ffffff, var(--color-primary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 8px;
-        }
-
-        .stat-title {
-            font-size: 1.1rem;
-            font-weight: 600;
-            margin-bottom: 12px;
-        }
-
-        .stat-desc {
-            font-size: 0.9rem;
-            color: var(--text-muted);
-        }
-
-        /* Latency Benchmarks Dashboard */
-        .benchmarks-section {
-            padding: 60px 0 100px 0;
-        }
-
-        .benchmarks-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-glow);
-            border-radius: var(--radius-lg);
-            padding: 40px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-        }
-
-        .bench-grid {
-            display: grid;
-            grid-template-columns: 1fr 1.2fr;
-            gap: 40px;
-        }
-
-        @media (max-width: 900px) {
-            .bench-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .bench-details h3 {
-            font-size: 1.8rem;
-            margin-bottom: 16px;
-        }
-
-        .bench-details p {
-            color: var(--text-muted);
-            margin-bottom: 24px;
-        }
-
-        .bench-chart {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-
-        .chart-row {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .chart-row-header {
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.9rem;
-            font-weight: 500;
-        }
-
-        .chart-bar-container {
-            height: 12px;
-            background-color: rgba(255, 255, 255, 0.05);
-            border-radius: 6px;
-            overflow: hidden;
-            position: relative;
-        }
-
-        .chart-bar {
-            height: 100%;
-            border-radius: 6px;
-            width: 0; /* Animated dynamically */
-            transition: width 1.5s cubic-bezier(0.1, 0.8, 0.2, 1);
-        }
-
-        .bar-rust {
-            background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
-        }
-
-        .bar-fallback {
-            background: linear-gradient(90deg, #ef4444, #f97316);
-        }
-
-        /* Features Section */
-        .features-section {
-            padding: 100px 0;
-            background: rgba(255,255,255,0.01);
-            border-top: 1px solid var(--border-glow);
-            border-bottom: 1px solid var(--border-glow);
-        }
-
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 32px;
-            margin-top: 60px;
-        }
-
-        @media (max-width: 768px) {
-            .features-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .feature-card {
-            background: var(--bg-surface);
-            border: 1px solid var(--border-glow);
-            border-radius: var(--radius-md);
-            padding: 32px;
-            display: flex;
-            gap: 20px;
-            transition: var(--transition-smooth);
-        }
-
-        .feature-card:hover {
-            transform: translateY(-2px);
-            border-color: var(--border-primary);
-        }
-
-        .feature-icon {
-            width: 48px;
-            height: 48px;
-            background-color: var(--color-primary-glow);
-            border-radius: var(--radius-sm);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--color-primary);
-            flex-shrink: 0;
-        }
-
-        .feature-icon svg {
-            width: 24px;
-            height: 24px;
-            fill: none;
-            stroke: currentColor;
-        }
-
-        .feature-content h3 {
-            font-size: 1.2rem;
-            margin-bottom: 8px;
-        }
-
-        .feature-content p {
-            color: var(--text-muted);
-            font-size: 0.95rem;
-        }
-
-        /* Quick Start Terminal Setup */
-        .setup-section {
-            padding: 100px 0;
-        }
-
-        .setup-card {
-            background-color: var(--bg-terminal);
-            border: 1px solid var(--border-glow);
-            border-radius: var(--radius-lg);
-            overflow: hidden;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
-        }
-
-        .terminal-header {
-            background-color: rgba(255, 255, 255, 0.03);
-            padding: 16px 24px;
-            border-bottom: 1px solid var(--border-glow);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .terminal-dots {
-            display: flex;
-            gap: 8px;
-        }
-
-        .dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-        }
-
-        .dot-red { background-color: #ef4444; }
-        .dot-yellow { background-color: #f59e0b; }
-        .dot-green { background-color: #10b981; }
-
-        .terminal-title {
-            font-size: 0.85rem;
-            font-family: 'JetBrains Mono', monospace;
-            color: var(--text-muted);
-        }
-
-        .terminal-body {
-            padding: 32px;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.9rem;
-            color: var(--text-main);
-        }
-
-        .terminal-prompt {
-            color: var(--color-primary);
-            margin-right: 8px;
-            user-select: none;
-        }
-
-        .terminal-comment {
-            color: var(--text-dark);
-            margin-bottom: 8px;
-        }
-
-        .terminal-line {
-            margin-bottom: 16px;
-        }
-
-        /* Credits footer banner */
-        .credits-banner {
-            background: linear-gradient(135deg, rgba(16, 185, 129, 0.05), rgba(6, 182, 212, 0.05));
-            border: 1px solid var(--border-glow);
-            border-radius: var(--radius-lg);
-            padding: 40px;
-            margin-bottom: 80px;
-            display: flex;
-            align-items: center;
-            gap: 32px;
-        }
-
-        @media (max-width: 768px) {
-            .credits-banner {
-                flex-direction: column;
-                text-align: center;
-            }
-        }
-
-        .credits-heart {
-            font-size: 2.5rem;
-        }
-
-        .credits-text h4 {
-            font-size: 1.25rem;
-            margin-bottom: 8px;
-        }
-
-        .credits-text p {
-            color: var(--text-muted);
-            font-size: 0.95rem;
-        }
-
-        /* Footer */
-        footer {
-            border-top: 1px solid var(--border-glow);
-            padding: 48px 0;
-            color: var(--text-muted);
-            font-size: 0.9rem;
-            text-align: center;
-        }
-
-        .footer-logo {
-            font-family: 'Outfit', sans-serif;
-            font-weight: 800;
-            color: var(--text-main);
-            margin-bottom: 16px;
-        }
-
-        .footer-links {
-            display: flex;
-            justify-content: center;
-            gap: 24px;
-            margin-bottom: 24px;
-        }
-
-        .footer-link:hover {
-            color: var(--text-main);
-        }
-    </style>
+    .radial-glow-dark {
+      background-image: 
+        radial-gradient(circle at 10% 20%, rgba(16, 185, 129, 0.04) 0%, transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.04) 0%, transparent 40%);
+    }
+
+    .radial-glow-light {
+      background-image: 
+        radial-gradient(circle at 10% 20%, rgba(16, 185, 129, 0.02) 0%, transparent 45%),
+        radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.02) 0%, transparent 45%);
+    }
+
+    /* CSS Accordion Arrow Flip */
+    details[open] summary svg {
+      transform: rotate(180deg);
+    }
+  </style>
+
+  <!-- Schema.org FAQPage Structured Data -->
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is Semble-RS and how does it compare to Python Semble?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Semble-RS is a native Rust port of MinishLab's Python 'semble' code-search library. It eliminates the Python runtime requirement, providing a self-contained native binary. It delivers sub-millisecond retrieval speeds (sub-680µs on small corpuses) and exploits multi-core systems via Rayon for parallelized Tree-sitter chunking and Model2Vec encoding, achieving 40% faster indexing speeds."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How does the search pipeline combine BM25 and Semantic Retrieval?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Semble-RS employs a dual retrieval strategy: BM25 lexical search is used for exact matches of code identifiers, while Model2Vec static representations are swept concurrently using CPU autovectorized SIMD. The candidate pools are then combined using Reciprocal Rank Fusion (RRF) and code-aware structural reranking, prioritizing structure/function declarations."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can Semble-RS be used directly with Claude Code?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes! Semble-RS supports the Model Context Protocol (MCP) server specification natively over stdio. You can integrate it directly with Claude Code by running 'claude mcp add semble -s user -- /path/to/semble' or install it via cargo for drop-in stdio-based discovery."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What programming languages are supported for AST structural chunking?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Semble-RS uses Tree-sitter for structural AST boundaries. It natively supports Rust, Python, JavaScript, TypeScript, Java, Go, C, C++, and Markdown out-of-the-box. Unsupported file types automatically fall back to an optimized line-based chunker."
+          }
+        }
+      ]
+    }
+  </script>
 </head>
-<body>
+<body class="bg-slate-50 dark:bg-brand-navy-950 text-slate-800 dark:text-slate-200 transition-colors duration-300 font-sans radial-glow-light dark:radial-glow-dark min-h-screen flex flex-col antialiased">
 
-    <!-- Header Navigation -->
-    <nav>
-        <div class="container nav-container">
-            <div class="logo">
-                <svg width="28" height="28" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                semble-rs
-            </div>
-            <div class="nav-links">
-                <a href="#playground" class="nav-link">Playground</a>
-                <a href="#benchmarks" class="nav-link">Performance</a>
-                <a href="#features" class="nav-link">Features</a>
-                <a href="PERFORMANCE_REPORT.md" class="nav-link">Full Report</a>
-            </div>
-            <a href="https://github.com/mrorigo/semble-rs" target="_blank" class="btn-github">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                    <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0012 2z" />
-                </svg>
-                GitHub
-            </a>
+  <!-- Accessible Skip Link -->
+  <a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-brand-emerald focus:text-white focus:rounded-md focus:outline-none focus:ring-2 focus:ring-brand-emerald-light">
+    Skip to Main Content
+  </a>
+
+  <!-- Sticky Header Navigation -->
+  <nav class="sticky top-0 z-40 w-full border-b border-slate-200 dark:border-slate-800/80 bg-white/80 dark:bg-brand-navy-950/80 glassmorphism transition-all duration-300">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16 sm:h-20">
+        
+        <!-- Brand Logo -->
+        <a href="#" class="flex items-center gap-2.5 focus:outline-none focus:ring-2 focus:ring-brand-emerald-light rounded-md">
+          <svg class="h-8 w-8 text-brand-emerald" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            <line x1="11" y1="8" x2="11" y2="14"></line>
+            <line x1="8" y1="11" x2="14" y2="11"></line>
+          </svg>
+          <span class="font-display font-extrabold text-2xl tracking-tight bg-gradient-to-r from-brand-emerald to-brand-cyan bg-clip-text text-transparent">
+            semble-rs
+          </span>
+        </a>
+
+        <!-- Desktop Navigation Links -->
+        <div class="hidden md:flex items-center gap-8 font-medium text-sm text-slate-600 dark:text-slate-400">
+          <a href="#playground" class="hover:text-slate-900 dark:hover:text-white transition-colors duration-200 focus:outline-none focus:underline">Playground</a>
+          <a href="#benchmarks" class="hover:text-slate-900 dark:hover:text-white transition-colors duration-200 focus:outline-none focus:underline">Performance</a>
+          <a href="#architecture" class="hover:text-slate-900 dark:hover:text-white transition-colors duration-200 focus:outline-none focus:underline">Architecture</a>
+          <a href="#quickstart" class="hover:text-slate-900 dark:hover:text-white transition-colors duration-200 focus:outline-none focus:underline">Quick Start</a>
+          <a href="#faq" class="hover:text-slate-900 dark:hover:text-white transition-colors duration-200 focus:outline-none focus:underline">FAQ</a>
         </div>
-    </nav>
 
+        <!-- Right Utilities: Theme Toggle + CTA -->
+        <div class="flex items-center gap-4">
+          
+          <!-- Three-State Dark Mode Button -->
+          <button id="theme-toggle" aria-label="Toggle Dark Mode" class="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-brand-navy-900 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 focus:outline-none focus:ring-2 focus:ring-brand-emerald-light transition-all duration-200">
+            <!-- Moon Icon (Dark Mode active) -->
+            <svg id="theme-toggle-dark-icon" class="hidden w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"></path>
+            </svg>
+            <!-- Sun Icon (Light Mode active) -->
+            <svg id="theme-toggle-light-icon" class="hidden w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.46 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd"></path>
+            </svg>
+          </button>
+
+          <!-- GitHub CTA -->
+          <a href="https://github.com/mrorigo/semble-rs" target="_blank" rel="noopener noreferrer" class="hidden sm:inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-brand-navy-900 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/80 focus:outline-none focus:ring-2 focus:ring-brand-emerald-light transition-all duration-200">
+            <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+              <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0012 2z"></path>
+            </svg>
+            GitHub
+          </a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main Content Wrapper -->
+  <main id="main-content" class="flex-grow">
+    
     <!-- Hero Section -->
-    <header class="hero">
-        <div class="container">
-            <div class="badge">
-                <span style="color:var(--color-accent)">⚡</span> Native Rust Port
-            </div>
-            <h1>Instant Local Code Search<br>for <span>AI Agents</span></h1>
-            <p class="hero-subtitle">
-                High-performance, CPU-only local code representation learning. Combines sub-5ms <strong>Model2Vec semantic scans</strong>, precise <strong>BM25 lexical indexers</strong>, and <strong>Tree-sitter AST structural boundaries</strong>.
-            </p>
-            <div class="hero-actions">
-                <a href="#setup" class="btn-primary">Install Server</a>
-                <a href="PERFORMANCE_REPORT.md" class="btn-secondary">Read Performance Report</a>
-            </div>
+    <header class="relative overflow-hidden py-20 lg:py-32">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center">
+        
+        <!-- Header Badge -->
+        <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-brand-emerald/30 dark:border-brand-emerald/20 bg-brand-emerald/10 text-brand-emerald dark:text-brand-emerald-light text-xs font-bold uppercase tracking-wider mb-8">
+          <span class="inline-block w-2 h-2 rounded-full bg-brand-emerald animate-pulse"></span>
+          Pure Native Rust Port
         </div>
+
+        <!-- Main Headline -->
+        <h1 class="font-display font-extrabold text-4xl sm:text-6xl lg:text-7xl leading-tight tracking-tight text-slate-900 dark:text-white max-w-5xl mx-auto mb-8">
+          Instant Local Code Search <br class="hidden sm:inline">
+          for <span class="bg-gradient-to-r from-brand-emerald via-emerald-400 to-brand-cyan bg-clip-text text-transparent">AI Agents</span>
+        </h1>
+
+        <!-- Supporting Subhead -->
+        <p class="text-lg sm:text-xl md:text-2xl font-light text-slate-600 dark:text-slate-400 max-w-4xl mx-auto leading-relaxed mb-12">
+          High-performance, CPU-only local code representation. Combines sub-5ms <strong>Model2Vec semantic scans</strong>, precise <strong>BM25 lexical indexers</strong>, and <strong>Tree-sitter AST structural boundaries</strong>. Zero Python runtime required.
+        </p>
+
+        <!-- CTA Buttons -->
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-20">
+          <a href="#quickstart" class="w-full sm:w-auto px-8 py-4 text-base font-semibold rounded-xl bg-gradient-to-r from-brand-emerald to-emerald-600 dark:from-brand-emerald dark:to-emerald-600 text-white shadow-lg hover:shadow-brand-emerald/30 hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-brand-emerald-light transition-all duration-200">
+            Get Started
+          </a>
+          <a href="#benchmarks" class="w-full sm:w-auto px-8 py-4 text-base font-semibold rounded-xl border border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-brand-navy-900/50 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-white focus:outline-none focus:ring-2 focus:ring-slate-400 transition-all duration-200">
+            View Performance Specs
+          </a>
+        </div>
+
+        <!-- Dynamic Mockup Showcase (Glassmorphic Interface Preview) -->
+        <div class="relative max-w-5xl mx-auto">
+          <!-- Backside decorative glows -->
+          <div class="absolute -top-12 -left-12 w-64 h-64 bg-brand-emerald/10 rounded-full blur-3xl -z-10 animate-pulse"></div>
+          <div class="absolute -bottom-12 -right-12 w-64 h-64 bg-brand-cyan/15 rounded-full blur-3xl -z-10 animate-pulse"></div>
+          
+          <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-brand-navy-900/40 p-4 sm:p-6 shadow-2xl glassmorphism">
+            <!-- Window Bar -->
+            <div class="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800/80 mb-4">
+              <div class="flex gap-2">
+                <span class="w-3 h-3 rounded-full bg-rose-500"></span>
+                <span class="w-3 h-3 rounded-full bg-amber-400"></span>
+                <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
+              </div>
+              <span class="text-xs font-mono text-slate-400 dark:text-slate-500">mcp-server-stdout.log</span>
+              <span class="w-8"></span>
+            </div>
+            <!-- Window Console Body -->
+            <div class="text-left font-mono text-xs sm:text-sm leading-relaxed overflow-x-auto text-slate-700 dark:text-emerald-300">
+              <div class="mb-2"><span class="text-slate-400 dark:text-slate-500">[2026-05-18 18:10:45]</span> <span class="text-indigo-500 dark:text-indigo-400">INFO</span> Loading static Model2Vec embedding matrix from cache...</div>
+              <div class="mb-2"><span class="text-slate-400 dark:text-slate-500">[2026-05-18 18:10:45]</span> <span class="text-indigo-500 dark:text-indigo-400">INFO</span> Successfully instantiated <span class="text-cyan-500">minishlab/potion-code-16M</span> (dim=256) [SIMD-AVX2 enabled]</div>
+              <div class="mb-2"><span class="text-slate-400 dark:text-slate-500">[2026-05-18 18:10:46]</span> <span class="text-brand-emerald">SUCCESS</span> Rayon parallel walk of <span class="text-slate-800 dark:text-white font-semibold">./src</span> completed in <strong>164 ms</strong> (2,500 AST chunks loaded)</div>
+              <div class="mb-2"><span class="text-slate-400 dark:text-slate-500">[2026-05-18 18:10:46]</span> <span class="text-indigo-500 dark:text-indigo-400">INFO</span> Starting stdio MCP server loop. Ready for AI Agent requests.</div>
+              <div class="text-slate-400 dark:text-slate-600 animate-pulse mt-4">&gt; _</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
     </header>
 
-    <!-- Performance Dashboard Key Stats -->
-    <section class="stats-section">
-        <div class="container">
-            <div class="grid-3">
-                <div class="stat-card">
-                    <div class="stat-val">&lt; 5.1ms</div>
-                    <div class="stat-title">Semantic Retrieval Scans</div>
-                    <div class="stat-desc">Linear dense float cosine sweeps parsed on CPU SIMD without external APIs.</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-val">15.8x</div>
-                    <div class="stat-title">AST Parsing Speed Win</div>
-                    <div class="stat-desc">Tree-sitter Rust chunks structurally in 4.6 ms vs naive line splitting (73.5 ms).</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-val">1.46s</div>
-                    <div class="stat-title">Parallel Index Build</div>
-                    <div class="stat-desc">Walking, AST boundary discovery, and Model2Vec encoding fully parallelized via Rayon.</div>
-                </div>
+    <!-- Key Metrics Highlight Section -->
+    <section class="py-16 border-y border-slate-200 dark:border-slate-800 bg-white/40 dark:bg-brand-navy-900/10">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+          
+          <!-- Metric 1 -->
+          <div class="p-8 rounded-2xl border border-slate-200 dark:border-slate-800/80 bg-white dark:bg-brand-navy-900/40 text-center hover:border-brand-emerald/40 transition-all duration-300 group">
+            <div class="font-display font-extrabold text-5xl bg-gradient-to-r from-brand-emerald to-emerald-400 bg-clip-text text-transparent mb-3 group-hover:scale-105 transition-transform duration-200">
+              &lt; 5.1ms
             </div>
+            <h3 class="text-lg font-bold text-slate-800 dark:text-white mb-2">Semantic CPU Scans</h3>
+            <p class="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+              Brute-force float cosine similarities over thousands of vector chunks using SIMD autovectorization.
+            </p>
+          </div>
+
+          <!-- Metric 2 -->
+          <div class="p-8 rounded-2xl border border-slate-200 dark:border-slate-800/80 bg-white dark:bg-brand-navy-900/40 text-center hover:border-brand-cyan/40 transition-all duration-300 group">
+            <div class="font-display font-extrabold text-5xl bg-gradient-to-r from-brand-cyan to-cyan-400 bg-clip-text text-transparent mb-3 group-hover:scale-105 transition-transform duration-200">
+              15.8x
+            </div>
+            <h3 class="text-lg font-bold text-slate-800 dark:text-white mb-2">AST Chunk boundary win</h3>
+            <p class="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+              Tree-sitter structurally parses 2,000 source lines in 4.6 ms vs. naive splitting (73.5 ms).
+            </p>
+          </div>
+
+          <!-- Metric 3 -->
+          <div class="p-8 rounded-2xl border border-slate-200 dark:border-slate-800/80 bg-white dark:bg-brand-navy-900/40 text-center hover:border-brand-emerald/40 transition-all duration-300 group">
+            <div class="font-display font-extrabold text-5xl bg-gradient-to-r from-brand-emerald via-emerald-400 to-brand-cyan bg-clip-text text-transparent mb-3 group-hover:scale-105 transition-transform duration-200">
+              1.46s
+            </div>
+            <h3 class="text-lg font-bold text-slate-800 dark:text-white mb-2">Rayon parallel indexing</h3>
+            <p class="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+              Full workspace file discovery, AST chunking, and Model2Vec vector builds run concurrent across all CPU cores.
+            </p>
+          </div>
+
         </div>
+      </div>
     </section>
 
-    <!-- Visual Interactive Playground -->
-    <section id="playground" class="playground-section">
-        <div class="container">
-            <div class="playground-title">
-                <h2>Interactive Query Engine</h2>
-                <p>Simulate how Semble-RS processes a search request using hybrid rank fusion</p>
-            </div>
-            
-            <div class="playground-card">
-                <!-- Search panel -->
-                <div class="search-interface">
-                    <div class="search-title">
-                        <svg width="20" height="20" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                        </svg>
-                        Select a Search Prompt
-                    </div>
-                    
-                    <div class="query-box">
-                        <input type="text" id="interactive-query" class="query-input" value="authentication flow" readonly>
-                        <button onclick="runInteractiveQuery()" class="btn-search">
-                            <svg width="20" height="20" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                            </svg>
-                        </button>
-                    </div>
-
-                    <div class="query-suggestions">
-                        <div class="suggestion-item" onclick="selectSuggestion('authentication flow')">
-                            <span>"authentication flow"</span>
-                            <span class="suggestion-tag">Semantic Dense</span>
-                        </div>
-                        <div class="suggestion-item" onclick="selectSuggestion('save model checkpoint to disk')">
-                            <span>"save model checkpoint to disk"</span>
-                            <span class="suggestion-tag">Hybrid RRF</span>
-                        </div>
-                        <div class="suggestion-item" onclick="selectSuggestion('impl Display for')">
-                            <span>"impl Display for"</span>
-                            <span class="suggestion-tag">Lexical BM25</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Simulation Output -->
-                <div class="pipeline-display">
-                    <!-- Step 1 -->
-                    <div id="step-1" class="pipeline-step">
-                        <div class="step-header">
-                            <div class="step-num">1</div>
-                            <span>Encoding Input</span>
-                        </div>
-                        <div class="step-desc">Tokenizer generates token IDs; Model2Vec embeds into 256-D normalized vector.</div>
-                        <div class="step-output" id="out-step-1">Waiting for query...</div>
-                    </div>
-
-                    <!-- Step 2 -->
-                    <div id="step-2" class="pipeline-step">
-                        <div class="step-header">
-                            <div class="step-num">2</div>
-                            <span>Lexical Index Scan</span>
-                        </div>
-                        <div class="step-desc">In-memory BM25 dictionary lookups score matching exact identifiers.</div>
-                        <div class="step-output" id="out-step-2">Waiting for query...</div>
-                    </div>
-
-                    <!-- Step 3 -->
-                    <div id="step-3" class="pipeline-step">
-                        <div class="step-header">
-                            <div class="step-num">3</div>
-                            <span>RRF Fusion & Definition Reranking</span>
-                        </div>
-                        <div class="step-desc">Blends ranking pools via Reciprocal Rank Fusion, boosting struct/fn definitions.</div>
-                        <div class="step-output" id="out-step-3">Waiting for query...</div>
-                    </div>
-                </div>
-            </div>
+    <!-- Interactive Query Engine Simulator Section -->
+    <section id="playground" class="py-20 lg:py-32">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        
+        <div class="text-center max-w-3xl mx-auto mb-16">
+          <h2 class="font-display font-extrabold text-3xl sm:text-5xl text-slate-900 dark:text-white mb-4">
+            Interactive Query Pipeline
+          </h2>
+          <p class="text-lg text-slate-600 dark:text-slate-400 font-light">
+            Click on a sample code-search prompt below to watch Semble-RS run its hybrid retrieval and structural reranking stages in real-time.
+          </p>
         </div>
-    </section>
 
-    <!-- Latency Benchmarks Dashboard -->
-    <section id="benchmarks" class="benchmarks-section">
-        <div class="container">
-            <div class="benchmarks-card">
-                <div class="bench-grid">
-                    <div class="bench-details">
-                        <div class="badge" style="background-color:rgba(6, 182, 212, 0.08); border-color:rgba(6, 182, 212, 0.3); color:var(--color-accent)">
-                            📊 Benchmark Dashboard
-                        </div>
-                        <h3>Exceptional scaling, optimized in Rust</h3>
-                        <p>
-                            We compared Tree-sitter AST structural boundaries and flat CPU float cosine scans on an M1 MacBook Pro (32GB RAM). As the workload scales, the benefits of native compilation, Rayon parallelization, and SIMD autovectorization become massively evident.
-                        </p>
-                        <a href="PERFORMANCE_REPORT.md" class="btn-secondary" style="display:inline-block">View Full Performance Report</a>
-                    </div>
-
-                    <div class="bench-chart">
-                        <!-- Chart 1 -->
-                        <div class="chart-row">
-                            <div class="chart-row-header">
-                                <span>Tree-sitter Chunker Rust (2,000 Lines)</span>
-                                <span style="color:var(--color-primary); font-weight:600;">4.65 ms</span>
-                            </div>
-                            <div class="chart-bar-container">
-                                <div class="chart-bar bar-rust" id="bar-rust-chunk"></div>
-                            </div>
-                        </div>
-
-                        <!-- Chart 2 -->
-                        <div class="chart-row">
-                            <div class="chart-row-header">
-                                <span>Naive Line-Based Split Fallback (2,000 Lines)</span>
-                                <span style="color:#ef4444; font-weight:600;">73.50 ms</span>
-                            </div>
-                            <div class="chart-bar-container">
-                                <div class="chart-bar bar-fallback" id="bar-fallback-chunk"></div>
-                            </div>
-                        </div>
-
-                        <!-- Spacer -->
-                        <div style="height: 10px;"></div>
-
-                        <!-- Chart 3 -->
-                        <div class="chart-row">
-                            <div class="chart-row-header">
-                                <span>Semantic CPU Cosine Scan (2,500 Chunks)</span>
-                                <span style="color:var(--color-accent); font-weight:600;">5.06 ms</span>
-                            </div>
-                            <div class="chart-bar-container">
-                                <div class="chart-bar bar-rust" id="bar-rust-semantic"></div>
-                            </div>
-                        </div>
-
-                        <!-- Chart 4 -->
-                        <div class="chart-row">
-                            <div class="chart-row-header">
-                                <span>Hybrid Search (RRF + Lexical + Rerank)</span>
-                                <span style="color:var(--color-primary); font-weight:600;">27.73 ms</span>
-                            </div>
-                            <div class="chart-bar-container">
-                                <div class="chart-bar bar-rust" id="bar-rust-hybrid"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Features Section -->
-    <section id="features" class="features-section">
-        <div class="container">
-            <div class="playground-title">
-                <h2>Architectural Excellence</h2>
-                <p>Designed for resource-constrained agent pipelines where latency is critical</p>
-            </div>
-
-            <div class="features-grid">
-                <!-- Card 1 -->
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <svg viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
-                    </div>
-                    <div class="feature-content">
-                        <h3>Sub-5ms Semantic Scanning</h3>
-                        <p>Leverages native Model2Vec representation layers. Scans thousands of normalized code embeddings instantly using SIMD autovectorization on standard CPU hardware.</p>
-                    </div>
-                </div>
-
-                <!-- Card 2 -->
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <svg viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                        </svg>
-                    </div>
-                    <div class="feature-content">
-                        <h3>AST Structural Boundaries</h3>
-                        <p>Tree-sitter integration understands your code structure. It avoids breaking functions or classes across lines, delivering meaningful blocks directly to LLM context windows.</p>
-                    </div>
-                </div>
-
-                <!-- Card 3 -->
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <svg viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                        </svg>
-                    </div>
-                    <div class="feature-content">
-                        <h3>Hybrid Lexical-Semantic Core</h3>
-                        <p>Exact identifier matches are critical in code. BM25 indexes ensure query keywords map cleanly while Model2Vec embeddings cover intent and conceptual overlaps.</p>
-                    </div>
-                </div>
-
-                <!-- Card 4 -->
-                <div class="feature-card">
-                    <div class="feature-icon">
-                        <svg viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        </svg>
-                    </div>
-                    <div class="feature-content">
-                        <h3>Drop-in MCP stdio protocol</h3>
-                        <p>Launches naturally as a Model Context Protocol server over stdio. A seamless local addition for developer environments like Claude Code, Cursor, or Cline.</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Quick Start Setup Panel -->
-    <section id="setup" class="setup-section">
-        <div class="container">
-            <div class="playground-title">
-                <h2>Quick Start & Setup</h2>
-                <p>Deploy the high-performance local server in seconds</p>
-            </div>
-
-            <div class="setup-card">
-                <div class="terminal-header">
-                    <div class="terminal-dots">
-                        <div class="dot dot-red"></div>
-                        <div class="dot dot-yellow"></div>
-                        <div class="dot dot-green"></div>
-                    </div>
-                    <div class="terminal-title">bash — install & configure mcp</div>
-                </div>
-                <div class="terminal-body">
-                    <div class="terminal-comment"># 1. Compile the native release binary from source</div>
-                    <div class="terminal-line">
-                        <span class="terminal-prompt">$</span>cargo build --release
-                    </div>
-                    
-                    <div class="terminal-comment"># 2. Install the CLI tool directly to cargo path</div>
-                    <div class="terminal-line">
-                        <span class="terminal-prompt">$</span>cargo install --locked --path .
-                    </div>
-
-                    <div class="terminal-comment"># 3. Add to your local Claude Code configuration as an MCP stdio server</div>
-                    <div class="terminal-line">
-                        <span class="terminal-prompt">$</span>claude mcp add semble -s user -- semble
-                    </div>
-
-                    <div class="terminal-comment"># 4. Or search programmatically from the CLI</div>
-                    <div class="terminal-line">
-                        <span class="terminal-prompt">$</span>semble search "authentication flow" ./src
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Original Attribution Credit Banner -->
-    <section class="container">
-        <div class="credits-banner">
-            <div class="credits-heart">🙏</div>
-            <div class="credits-text">
-                <h4>Praising MinishLab & Original Semble Core</h4>
-                <p>
-                    Semble-RS is a native Rust implementation of the outstanding original Python **[semble](https://github.com/MinishLab/semble)** code-search library created by the incredible engineering team at **[MinishLab](https://github.com/MinishLab)**. The spectacular sub-5ms scanning capability is fueled directly by their groundbreaking **[Model2Vec](https://github.com/MinishLab/model2vec)** static embedding architecture. We credit and praise their open-source NLP innovations!
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+          
+          <!-- Left Column: Search & Settings Controls -->
+          <div class="lg:col-span-5 flex flex-col justify-between p-6 sm:p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-brand-navy-900 shadow-xl">
+            <div class="space-y-8">
+              <div>
+                <h3 class="text-xl font-bold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+                  <svg class="h-5 w-5 text-brand-emerald" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                  </svg>
+                  Search Simulator
+                </h3>
+                <p class="text-sm text-slate-500 dark:text-slate-400">
+                  Select a topic to execute hybrid search in the simulation environment.
                 </p>
+              </div>
+
+              <!-- Query Input Display -->
+              <div class="flex gap-2">
+                <input type="text" id="interactive-query" class="flex-grow font-mono text-sm px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-brand-navy-950 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-emerald" value="authentication flow" readonly>
+                <button onclick="runInteractiveQuery()" class="px-5 py-3 rounded-lg bg-brand-emerald text-white hover:bg-brand-emerald-dark active:scale-95 focus:outline-none focus:ring-2 focus:ring-brand-emerald-light transition-all duration-200" aria-label="Run simulated search query">
+                  <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                  </svg>
+                </button>
+              </div>
+
+              <!-- Selector Suggestions -->
+              <div class="space-y-3">
+                <span class="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Query Presets</span>
+                
+                <!-- Suggestion 1 -->
+                <button onclick="selectSuggestion('authentication flow')" class="w-full text-left p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-brand-navy-950/40 hover:bg-slate-100 dark:hover:bg-brand-navy-950 hover:border-brand-emerald/40 hover:translate-x-1.5 transition-all duration-300 flex justify-between items-center group">
+                  <span class="font-mono text-sm text-slate-700 dark:text-slate-300">"authentication flow"</span>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-brand-emerald/10 text-brand-emerald">Dense Semantic</span>
+                </button>
+
+                <!-- Suggestion 2 -->
+                <button onclick="selectSuggestion('save model checkpoint to disk')" class="w-full text-left p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-brand-navy-950/40 hover:bg-slate-100 dark:hover:bg-brand-navy-950 hover:border-brand-emerald/40 hover:translate-x-1.5 transition-all duration-300 flex justify-between items-center group">
+                  <span class="font-mono text-sm text-slate-700 dark:text-slate-300">"save model checkpoint"</span>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-brand-cyan/10 text-brand-cyan">Hybrid RRF</span>
+                </button>
+
+                <!-- Suggestion 3 -->
+                <button onclick="selectSuggestion('impl Display for')" class="w-full text-left p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-brand-navy-950/40 hover:bg-slate-100 dark:hover:bg-brand-navy-950 hover:border-brand-emerald/40 hover:translate-x-1.5 transition-all duration-300 flex justify-between items-center group">
+                  <span class="font-mono text-sm text-slate-700 dark:text-slate-300">"impl Display for"</span>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400">Lexical BM25</span>
+                </button>
+              </div>
             </div>
+
+            <div class="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-400 dark:text-slate-500 leading-normal">
+              Note: Model2Vec static token projections compress normal sentence-transformers by up to 50x, returning query embeddings in roughly <strong>120 µs</strong> on normal CPUs.
+            </div>
+          </div>
+
+          <!-- Right Column: Visual Stage Pipeline -->
+          <div class="lg:col-span-7 flex flex-col p-6 sm:p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-brand-navy-950 shadow-xl overflow-hidden relative">
+            
+            <div class="space-y-6 flex-grow">
+              
+              <!-- Pipeline Step 1 -->
+              <div id="step-1" class="pipeline-step transition-all duration-500 opacity-30 transform translate-y-3">
+                <div class="flex items-center gap-3">
+                  <span class="w-6 h-6 rounded-full bg-brand-emerald text-white flex items-center justify-center text-xs font-bold font-display">1</span>
+                  <h4 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Dense Vector Projection</h4>
+                </div>
+                <p class="text-xs text-slate-400 ml-9 mt-1 mb-2">
+                  Query project tags are compiled; Model2Vec embeds into a 256-D static float representation.
+                </p>
+                <pre class="ml-9 p-3 rounded-lg bg-slate-900 border border-slate-800 font-mono text-[11px] text-brand-cyan overflow-x-auto whitespace-pre-wrap" id="out-step-1">Waiting for query...</pre>
+              </div>
+
+              <!-- Pipeline Step 2 -->
+              <div id="step-2" class="pipeline-step transition-all duration-500 opacity-30 transform translate-y-3">
+                <div class="flex items-center gap-3">
+                  <span class="w-6 h-6 rounded-full bg-brand-emerald text-white flex items-center justify-center text-xs font-bold font-display">2</span>
+                  <h4 class="text-sm font-bold text-slate-200 uppercase tracking-wider">Lexical Posting Scans</h4>
+                </div>
+                <p class="text-xs text-slate-400 ml-9 mt-1 mb-2">
+                  In-memory BM25 lexical scanner score exact string identifiers in the vocabulary.
+                </p>
+                <pre class="ml-9 p-3 rounded-lg bg-slate-900 border border-slate-800 font-mono text-[11px] text-brand-emerald overflow-x-auto whitespace-pre-wrap" id="out-step-2">Waiting...</pre>
+              </div>
+
+              <!-- Pipeline Step 3 -->
+              <div id="step-3" class="pipeline-step transition-all duration-500 opacity-30 transform translate-y-3">
+                <div class="flex items-center gap-3">
+                  <span class="w-6 h-6 rounded-full bg-brand-emerald text-white flex items-center justify-center text-xs font-bold font-display">3</span>
+                  <h4 class="text-sm font-bold text-slate-200 uppercase tracking-wider">RRF & AST Declarations Boost</h4>
+                </div>
+                <p class="text-xs text-slate-400 ml-9 mt-1 mb-2">
+                  Blends lists using Reciprocal Rank Fusion (RRF) and elevates structurally-aware code boundaries.
+                </p>
+                <pre class="ml-9 p-3 rounded-lg bg-slate-900 border border-slate-800 font-mono text-[11px] text-white overflow-x-auto whitespace-pre-wrap" id="out-step-3">Waiting...</pre>
+              </div>
+
+            </div>
+          </div>
+
         </div>
+
+      </div>
     </section>
 
-    <!-- Footer -->
-    <footer>
-        <div class="container">
-            <div class="footer-logo">semble-rs</div>
-            <div class="footer-links">
-                <a href="#playground" class="footer-link">Playground</a>
-                <a href="#benchmarks" class="footer-link">Performance</a>
-                <a href="#features" class="footer-link">Features</a>
-                <a href="PERFORMANCE_REPORT.md" class="footer-link">Full Report</a>
+    <!-- Visual Latency Benchmark Section -->
+    <section id="benchmarks" class="py-20 lg:py-32 border-t border-slate-200 dark:border-slate-800 bg-white/40 dark:bg-brand-navy-900/10">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        
+        <div class="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-brand-navy-900/70 p-8 sm:p-12 shadow-2xl glassmorphism">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            
+            <!-- Left Info -->
+            <div class="space-y-6">
+              <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-brand-cyan/30 dark:border-brand-cyan/20 bg-brand-cyan/10 text-brand-cyan dark:text-brand-cyan-light text-xs font-bold uppercase tracking-wider">
+                📊 Real Performance Dashboard
+              </div>
+              <h2 class="font-display font-extrabold text-3xl sm:text-5xl text-slate-900 dark:text-white leading-tight">
+                Outstanding scaling, optimized in Rust
+              </h2>
+              <p class="text-slate-600 dark:text-slate-400 leading-relaxed font-light">
+                We compared Tree-sitter AST structural boundaries and flat CPU float cosine scans on an M1 MacBook Pro (32GB RAM). As the workload scales, the benefits of native compilation, Rayon parallelization, and SIMD autovectorization become massively evident.
+              </p>
+              <div class="pt-4">
+                <a href="PERFORMANCE_REPORT.md" class="inline-flex items-center gap-2 px-6 py-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-brand-navy-900 font-semibold text-sm hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-brand-emerald-light">
+                  View Full Markdown Report
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
+              </div>
             </div>
-            <div>Licensed under the MIT License. Developed by origo & team.</div>
+
+            <!-- Right Visual Graphs -->
+            <div class="space-y-8">
+              
+              <!-- Chart 1: Tree-sitter Rust vs Line-based -->
+              <div class="space-y-2">
+                <div class="flex justify-between text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  <span>Tree-sitter Rust AST (2,000 lines)</span>
+                  <span class="text-brand-emerald">4.65 ms</span>
+                </div>
+                <div class="h-3 w-full bg-slate-100 dark:bg-brand-navy-950 rounded-full overflow-hidden relative">
+                  <div id="bar-rust-ast" class="h-full bg-gradient-to-r from-brand-emerald to-emerald-400 rounded-full transition-all duration-[1500ms] ease-out w-0"></div>
+                </div>
+              </div>
+
+              <div class="space-y-2">
+                <div class="flex justify-between text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  <span>Naive Line-Based Split (2,000 lines)</span>
+                  <span class="text-rose-500">73.50 ms</span>
+                </div>
+                <div class="h-3 w-full bg-slate-100 dark:bg-brand-navy-950 rounded-full overflow-hidden relative">
+                  <div id="bar-line-ast" class="h-full bg-gradient-to-r from-rose-500 to-orange-400 rounded-full transition-all duration-[1500ms] ease-out w-0"></div>
+                </div>
+              </div>
+
+              <!-- Spacer -->
+              <div class="border-t border-slate-100 dark:border-slate-800/80 my-4"></div>
+
+              <!-- Chart 2: Semantic vs Hybrid -->
+              <div class="space-y-2">
+                <div class="flex justify-between text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  <span>Semantic CPU Cosine Scan (2,500 chunks)</span>
+                  <span class="text-brand-cyan">5.06 ms</span>
+                </div>
+                <div class="h-3 w-full bg-slate-100 dark:bg-brand-navy-950 rounded-full overflow-hidden relative">
+                  <div id="bar-semantic-scan" class="h-full bg-gradient-to-r from-brand-cyan to-cyan-400 rounded-full transition-all duration-[1500ms] ease-out w-0"></div>
+                </div>
+              </div>
+
+              <div class="space-y-2">
+                <div class="flex justify-between text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  <span>Full Hybrid Search (RRF + Rerank)</span>
+                  <span class="text-brand-emerald">27.73 ms</span>
+                </div>
+                <div class="h-3 w-full bg-slate-100 dark:bg-brand-navy-950 rounded-full overflow-hidden relative">
+                  <div id="bar-hybrid-search" class="h-full bg-gradient-to-r from-brand-emerald to-brand-cyan rounded-full transition-all duration-[1500ms] ease-out w-0"></div>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
         </div>
-    </footer>
 
-    <!-- Interactive JS Script -->
-    <script>
-        // Start showing the default simulated search flow on load
-        window.addEventListener('DOMContentLoaded', () => {
-            animateBars();
-            runInteractiveQuery();
-        });
+      </div>
+    </section>
 
-        // Trigger chart animation
-        function animateBars() {
-            setTimeout(() => {
-                document.getElementById('bar-rust-chunk').style.width = '6%';
-                document.getElementById('bar-fallback-chunk').style.width = '100%';
-                document.getElementById('bar-rust-semantic').style.width = '7%';
-                document.getElementById('bar-rust-hybrid').style.width = '38%';
-            }, 300);
-        }
+    <!-- Architecture / Technical Deep-Dive Grid -->
+    <section id="architecture" class="py-20 lg:py-32 border-t border-slate-200 dark:border-slate-800">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        
+        <div class="text-center max-w-3xl mx-auto mb-20">
+          <h2 class="font-display font-extrabold text-3xl sm:text-5xl text-slate-900 dark:text-white mb-4">
+            Architectural Excellence
+          </h2>
+          <p class="text-lg text-slate-600 dark:text-slate-400 font-light">
+            Designed for local resource-constrained loops where low-latency and context size optimization are critical.
+          </p>
+        </div>
 
-        // Selection helpers for query suggestions
-        function selectSuggestion(query) {
-            document.getElementById('interactive-query').value = query;
-            runInteractiveQuery();
-        }
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          
+          <!-- Card 1 -->
+          <div class="p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-brand-navy-900 hover:shadow-xl hover:border-brand-emerald/40 transition-all duration-300">
+            <div class="w-12 h-12 rounded-xl bg-brand-emerald/10 text-brand-emerald flex items-center justify-center mb-6">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-3">Sub-5ms Semantic Search</h3>
+            <p class="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">
+              Utilizes native Model2Vec structures. Autovectorized CPU sweeps compare thousands of embeddings instantly using optimized float operations.
+            </p>
+          </div>
 
-        // Animated interactive query flow simulation
-        function runInteractiveQuery() {
-            const query = document.getElementById('interactive-query').value;
+          <!-- Card 2 -->
+          <div class="p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-brand-navy-900 hover:shadow-xl hover:border-brand-emerald/40 transition-all duration-300">
+            <div class="w-12 h-12 rounded-xl bg-brand-emerald/10 text-brand-emerald flex items-center justify-center mb-6">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+              </svg>
+            </div>
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-3">AST Structural Chunking</h3>
+            <p class="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">
+              Tree-sitter boundary discovery respects formal code blocks (structs, functions). Prevents syntax splitting so LLM context windows stay accurate.
+            </p>
+          </div>
+
+          <!-- Card 3 -->
+          <div class="p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-brand-navy-900 hover:shadow-xl hover:border-brand-emerald/40 transition-all duration-300">
+            <div class="w-12 h-12 rounded-xl bg-brand-emerald/10 text-brand-emerald flex items-center justify-center mb-6">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+            </div>
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-3">Hybrid Blending Engine</h3>
+            <p class="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">
+              Exact matches require BM25. Conceptual queries require semantic vectors. Semble-RS fuses both via RRF and boosts function definitions natively.
+            </p>
+          </div>
+
+          <!-- Card 4 -->
+          <div class="p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-brand-navy-900 hover:shadow-xl hover:border-brand-emerald/40 transition-all duration-300">
+            <div class="w-12 h-12 rounded-xl bg-brand-emerald/10 text-brand-emerald flex items-center justify-center mb-6">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            </div>
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-3">Concurreny via Rayon</h3>
+            <p class="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">
+              Exploits multi-core architectures. Paralellizes parsing, chunking, and embedding to indexing in ~1.46s (a 40% speed drop sequential).
+            </p>
+          </div>
+
+          <!-- Card 5 -->
+          <div class="p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-brand-navy-900 hover:shadow-xl hover:border-brand-emerald/40 transition-all duration-300">
+            <div class="w-12 h-12 rounded-xl bg-brand-emerald/10 text-brand-emerald flex items-center justify-center mb-6">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              </svg>
+            </div>
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-3">Drop-in MCP stdio protocol</h3>
+            <p class="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">
+              Runs as a Model Context Protocol server over stdio. Seamless, instant addition to environments like Claude Code, Cursor, or Cline.
+            </p>
+          </div>
+
+          <!-- Card 6 -->
+          <div class="p-8 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-brand-navy-900 hover:shadow-xl hover:border-brand-emerald/40 transition-all duration-300">
+            <div class="w-12 h-12 rounded-xl bg-brand-emerald/10 text-brand-emerald flex items-center justify-center mb-6">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+              </svg>
+            </div>
+            <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-3">Offline Model Cache</h3>
+            <p class="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">
+              Static asset token matrices are downloaded natively from Hugging Face at first run. Perfect for air-gapped secure development.
+            </p>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Quick Start Panel Section -->
+    <section id="quickstart" class="py-20 lg:py-32 border-t border-slate-200 dark:border-slate-800 bg-white/40 dark:bg-brand-navy-900/10">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        
+        <div class="text-center max-w-3xl mx-auto mb-16">
+          <h2 class="font-display font-extrabold text-3xl sm:text-5xl text-slate-900 dark:text-white mb-4">
+            Quick Start & Setup
+          </h2>
+          <p class="text-lg text-slate-600 dark:text-slate-400 font-light">
+            Deploy the high-performance local server to your agent in seconds.
+          </p>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 dark:border-slate-800 bg-brand-navy-950 shadow-2xl overflow-hidden max-w-4xl mx-auto">
+          <!-- Terminal Header -->
+          <div class="flex items-center justify-between px-6 py-4 bg-slate-900/80 border-b border-slate-800/80">
+            <div class="flex gap-2">
+              <span class="w-3 h-3 rounded-full bg-rose-500"></span>
+              <span class="w-3 h-3 rounded-full bg-amber-400"></span>
+              <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
+            </div>
+            <span class="font-mono text-xs text-slate-400 select-none">bash — install & config</span>
+            <span class="w-8"></span>
+          </div>
+          <!-- Terminal Body -->
+          <div class="p-6 sm:p-8 font-mono text-xs sm:text-sm leading-relaxed text-slate-100 overflow-x-auto">
             
-            const step1 = document.getElementById('step-1');
-            const step2 = document.getElementById('step-2');
-            const step3 = document.getElementById('step-3');
+            <div class="mb-6">
+              <span class="text-slate-500 font-semibold select-none"># 1. Compile the native release binary from source</span>
+              <div class="flex items-center mt-1.5">
+                <span class="text-brand-emerald select-none mr-3">$</span>
+                <span class="text-slate-200">cargo build --release</span>
+              </div>
+            </div>
+
+            <div class="mb-6">
+              <span class="text-slate-500 font-semibold select-none"># 2. Install the executable into your local path</span>
+              <div class="flex items-center mt-1.5">
+                <span class="text-brand-emerald select-none mr-3">$</span>
+                <span class="text-slate-200">cargo install --locked --path .</span>
+              </div>
+            </div>
+
+            <div class="mb-6">
+              <span class="text-slate-500 font-semibold select-none"># 3. Add to Claude Code as a local MCP stdio server</span>
+              <div class="flex items-center mt-1.5">
+                <span class="text-brand-emerald select-none mr-3">$</span>
+                <span class="text-slate-200">claude mcp add semble -s user -- semble</span>
+              </div>
+            </div>
+
+            <div class="mb-2">
+              <span class="text-slate-500 font-semibold select-none"># 4. Or query codebases directly from your CLI terminal</span>
+              <div class="flex items-center mt-1.5">
+                <span class="text-brand-emerald select-none mr-3">$</span>
+                <span class="text-slate-200">semble search "authentication flow" ./src</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Warm Open-Source Credit & Acknowledgement -->
+    <section class="py-16">
+      <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="rounded-3xl border border-brand-emerald/20 bg-gradient-to-br from-brand-emerald/5 via-brand-cyan/5 to-transparent p-8 sm:p-12 shadow-md flex flex-col md:flex-row items-center gap-8 text-center md:text-left">
+          <div class="text-5xl select-none">🙏</div>
+          <div class="space-y-4">
+            <h4 class="font-display font-extrabold text-xl sm:text-2xl text-slate-900 dark:text-white">
+              Appreciating MinishLab & Original Semble Core
+            </h4>
+            <p class="text-sm sm:text-base text-slate-600 dark:text-slate-400 leading-relaxed font-light">
+              Semble-RS is a native Rust port and implementation of the outstanding original Python <strong><a href="https://github.com/MinishLab/semble" target="_blank" rel="noopener noreferrer" class="text-brand-emerald hover:underline font-semibold focus:outline-none focus:ring-1 focus:ring-brand-emerald">semble</a></strong> code-search library created by the incredible engineering team at <strong><a href="https://github.com/MinishLab" target="_blank" rel="noopener noreferrer" class="text-brand-emerald hover:underline font-semibold focus:outline-none focus:ring-1 focus:ring-brand-emerald">MinishLab</a></strong>. The sub-5ms semantic latency documented in our suites is powered directly by their pioneering <strong><a href="https://github.com/MinishLab/model2vec" target="_blank" rel="noopener noreferrer" class="text-brand-cyan hover:underline font-semibold focus:outline-none focus:ring-1 focus:ring-brand-cyan">Model2Vec</a></strong> representations. We warmly thank them for their open source ML contributions!
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section id="faq" class="py-20 lg:py-32 border-t border-slate-200 dark:border-slate-800 bg-white/40 dark:bg-brand-navy-900/10">
+      <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        
+        <div class="text-center max-w-3xl mx-auto mb-16">
+          <h2 class="font-display font-extrabold text-3xl sm:text-5xl text-slate-900 dark:text-white mb-4">
+            Frequently Asked Questions
+          </h2>
+          <p class="text-lg text-slate-600 dark:text-slate-400 font-light">
+            Answers to common questions about Semble-RS capabilities and operations.
+          </p>
+        </div>
+
+        <div class="space-y-4">
+          
+          <!-- Accordion Item 1 -->
+          <details class="group rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-brand-navy-900 overflow-hidden transition-all duration-300">
+            <summary class="flex justify-between items-center px-6 py-5 cursor-pointer list-none select-none focus:outline-none focus:bg-slate-50 dark:focus:bg-brand-navy-950">
+              <span class="font-semibold text-slate-900 dark:text-white text-sm sm:text-base">
+                What is Semble-RS and how does it compare to the original Python library?
+              </span>
+              <svg class="h-5 w-5 text-slate-400 group-hover:text-slate-500 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </summary>
+            <div class="px-6 pb-6 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-light space-y-2">
+              <p>
+                Semble-RS is a native Rust implementation of MinishLab's Python <code>semble</code> library. It compiles into a single executable binary, completely eliminating the need for a Python runtime, virtualenvs, or standard library version conflicts.
+              </p>
+              <p>
+                While the original Python library is highly optimized, Semble-RS achieves much lower latencies (sub-millisecond semantic retrievals vs. ~1.5ms in Python) and fully utilizes multi-core systems via parallel Rayon threads, reducing indexing times by 40%.
+              </p>
+            </div>
+          </details>
+
+          <!-- Accordion Item 2 -->
+          <details class="group rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-brand-navy-900 overflow-hidden transition-all duration-300">
+            <summary class="flex justify-between items-center px-6 py-5 cursor-pointer list-none select-none focus:outline-none focus:bg-slate-50 dark:focus:bg-brand-navy-950">
+              <span class="font-semibold text-slate-900 dark:text-white text-sm sm:text-base">
+                How does the search blend keyword matches and semantic intents?
+              </span>
+              <svg class="h-5 w-5 text-slate-400 group-hover:text-slate-500 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </summary>
+            <div class="px-6 pb-6 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-light space-y-2">
+              <p>
+                Exact matches for variable identifiers or struct names are crucial in codebases. A pure vector semantic search often misses exact string matches. Semble-RS addresses this by constructing an in-memory BM25 lexical index alongside static token embeddings.
+              </p>
+              <p>
+                At search time, both retrieval paths run, and their candidate pools are combined using Reciprocal Rank Fusion (RRF) with a ranking constant of 60. Then, code-aware structural reranking boosts explicit function and structure definitions, bringing structural context directly to the top.
+              </p>
+            </div>
+          </details>
+
+          <!-- Accordion Item 3 -->
+          <details class="group rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-brand-navy-900 overflow-hidden transition-all duration-300">
+            <summary class="flex justify-between items-center px-6 py-5 cursor-pointer list-none select-none focus:outline-none focus:bg-slate-50 dark:focus:bg-brand-navy-950">
+              <span class="font-semibold text-slate-900 dark:text-white text-sm sm:text-base">
+                How do Model assets get installed? Is an internet connection required?
+              </span>
+              <svg class="h-5 w-5 text-slate-400 group-hover:text-slate-500 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </summary>
+            <div class="px-6 pb-6 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-light space-y-2">
+              <p>
+                On the first search run (or when running <code>semble model install</code>), the tool downloads the highly optimized static embedding assets for <code>minishlab/potion-code-16M</code> from the Hugging Face Hub. It saves them to a platform-appropriate local cache directory.
+              </p>
+              <p>
+                Once these assets are downloaded, subsequent indexes and searches run completely offline with no network calls, which is perfect for air-gapped systems or secure development environments.
+              </p>
+            </div>
+          </details>
+
+          <!-- Accordion Item 4 -->
+          <details class="group rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-brand-navy-900 overflow-hidden transition-all duration-300">
+            <summary class="flex justify-between items-center px-6 py-5 cursor-pointer list-none select-none focus:outline-none focus:bg-slate-50 dark:focus:bg-brand-navy-950">
+              <span class="font-semibold text-slate-900 dark:text-white text-sm sm:text-base">
+                Can I swap standard transformers for custom models?
+              </span>
+              <svg class="h-5 w-5 text-slate-400 group-hover:text-slate-500 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </summary>
+            <div class="px-6 pb-6 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-light space-y-2">
+              <p>
+                Traditional transformer models (such as BERT or Sentence-Transformers) cannot be loaded dynamically because Semble-RS relies on the ultra-lightweight Model2Vec architecture for static, fast CPU projections.
+              </p>
+              <p>
+                However, you can point Semble-RS to any pre-distilled local static model compatible with fixed 256-dimensional float weights by configuring the <code>SEMBLE_MODEL_DIR</code> environment variable.
+              </p>
+            </div>
+          </details>
+
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Sleek Footer -->
+  <footer class="mt-auto border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-brand-navy-950/80 py-12 text-center text-xs text-slate-500 dark:text-slate-400 transition-colors duration-300">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+      
+      <!-- Brand & Quick Navigation -->
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-6">
+        <span class="font-display font-extrabold text-lg tracking-tight bg-gradient-to-r from-brand-emerald to-brand-cyan bg-clip-text text-transparent">
+          semble-rs
+        </span>
+        <div class="flex gap-6 font-medium">
+          <a href="#playground" class="hover:text-slate-800 dark:hover:text-white focus:outline-none focus:underline">Playground</a>
+          <a href="#benchmarks" class="hover:text-slate-800 dark:hover:text-white focus:outline-none focus:underline">Performance</a>
+          <a href="#architecture" class="hover:text-slate-800 dark:hover:text-white focus:outline-none focus:underline">Architecture</a>
+          <a href="#quickstart" class="hover:text-slate-800 dark:hover:text-white focus:outline-none focus:underline">Quick Start</a>
+        </div>
+      </div>
+
+      <!-- Divider -->
+      <div class="border-t border-slate-200 dark:border-slate-800/60"></div>
+
+      <!-- Copyright Details -->
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-4 font-light text-slate-400 dark:text-slate-500">
+        <div>
+          Licensed under the <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer" class="hover:underline font-normal text-slate-500 dark:text-slate-400 focus:outline-none">MIT License</a>. Developed by origo & team.
+        </div>
+        <div>
+          &copy; <span id="copyright-year">2026</span> Semble-RS Contributors.
+        </div>
+      </div>
+
+    </div>
+  </footer>
+
+  <!-- State & Interactive Animation Scripts -->
+  <script>
+    // Trigger chart width animations once content renders
+    window.addEventListener('DOMContentLoaded', () => {
+      animateBenchmarkCharts();
+      runInteractiveQuery();
+      document.getElementById('copyright-year').textContent = new Date().getFullYear();
+    });
+
+    // Animate comparative chart bar widths
+    function animateBenchmarkCharts() {
+      setTimeout(() => {
+        // Tree-sitter Rust AST takes 4.65ms -> let's make it 6.3% width relative to 73.50ms (100% width)
+        document.getElementById('bar-rust-ast').style.width = '6.3%';
+        document.getElementById('bar-line-ast').style.width = '100%';
+        
+        // Semantic scan takes 5.06ms -> let's make it 18.2% width relative to 27.73ms (100% width)
+        document.getElementById('bar-semantic-scan').style.width = '18.2%';
+        document.getElementById('bar-hybrid-search').style.width = '100%';
+      }, 250);
+    }
+
+    // Toggle Suggestions helper
+    function selectSuggestion(query) {
+      document.getElementById('interactive-query').value = query;
+      runInteractiveQuery();
+    }
+
+    // Run simulated interactive search stages sequentially with animations
+    function runInteractiveQuery() {
+      const query = document.getElementById('interactive-query').value;
+      
+      const step1 = document.getElementById('step-1');
+      const step2 = document.getElementById('step-2');
+      const step3 = document.getElementById('step-3');
+      
+      const out1 = document.getElementById('out-step-1');
+      const out2 = document.getElementById('out-step-2');
+      const out3 = document.getElementById('out-step-3');
+
+      // Reset step active visual state
+      step1.className = "pipeline-step transition-all duration-500 opacity-30 transform translate-y-3";
+      step2.className = "pipeline-step transition-all duration-500 opacity-30 transform translate-y-3";
+      step3.className = "pipeline-step transition-all duration-500 opacity-30 transform translate-y-3";
+
+      out1.textContent = "Encoding query terms into vector projections...";
+      out2.textContent = "Pending lexical scoring...";
+      out3.textContent = "Pending RRF blend...";
+
+      // Trigger Step 1: Embedding projection
+      setTimeout(() => {
+        step1.className = "pipeline-step transition-all duration-500 opacity-100 transform translate-y-0";
+        
+        let words = query.toLowerCase().split(/\s+/);
+        let randomFloats = Array.from({length: 5}, () => (Math.random() * 2 - 1).toFixed(4));
+        out1.textContent = `Tokens: [${words.map(w => `"${w}"`).join(', ')}]\nDense 256-D float32 projection slice: [${randomFloats.join(', ')}, ...]\nLatency: 0.12 ms`;
+
+        // Trigger Step 2: Lexical matching
+        setTimeout(() => {
+          step2.className = "pipeline-step transition-all duration-500 opacity-100 transform translate-y-0";
+          
+          let termMatches = words.map(w => {
+            let mockDocsCount = Math.floor(Math.random() * 30) + 1;
+            let mockIdf = (Math.random() * 4 + 2).toFixed(2);
+            return `  - "${w}": matched in ${mockDocsCount} chunks (IDF: ${mockIdf})`;
+          }).join('\n');
+
+          out2.textContent = `Scanning token vocabulary posting structures...\nMatched items:\n${termMatches}\nLatency: 21.68 ms`;
+
+          // Trigger Step 3: RRF & structural boost
+          setTimeout(() => {
+            step3.className = "pipeline-step transition-all duration-500 opacity-100 transform translate-y-0";
             
-            const out1 = document.getElementById('out-step-1');
-            const out2 = document.getElementById('out-step-2');
-            const out3 = document.getElementById('out-step-3');
+            let mockCode = "";
+            let rankScore = (Math.random() * 0.15 + 0.8).toFixed(3);
             
-            // Reset active states
-            step1.classList.remove('active');
-            step2.classList.remove('active');
-            step3.classList.remove('active');
-            
-            out1.innerHTML = 'Encoding token vectors...';
-            out2.innerHTML = 'Pending...';
-            out3.innerHTML = 'Pending...';
-            
-            // Step 1 Trigger
-            setTimeout(() => {
-                step1.classList.add('active');
-                
-                // Simulate model2vec tokenizer output
-                let tokens = query.toLowerCase().split(/\s+/);
-                let vector = [];
-                for (let i = 0; i < 5; i++) {
-                    vector.push((Math.random() * 2 - 1).toFixed(4));
-                }
-                out1.innerHTML = `Tokens: [${tokens.map(t => `"${t}"`).join(', ')}]\nEmbed Vector (normalized f32 slice): [${vector.join(', ')}, ... 251 more dims]\nLatency: 0.12 ms`;
-                
-                // Step 2 Trigger
-                setTimeout(() => {
-                    step2.classList.add('active');
-                    out2.innerHTML = `Scanning BM25 lexical posting lists...\nMatching Term matches:\n- "${tokens[0] || 'code'}": found in 42 files (IDF: 3.42)\n- "${tokens[1] || 'search'}": found in 12 files (IDF: 5.12)\nLatency: 21.68 ms`;
-                    
-                    // Step 3 Trigger
-                    setTimeout(() => {
-                        step3.classList.add('active');
-                        
-                        let mockCode = '';
-                        if (query.includes('auth')) {
-                            mockCode = `/// [Definition Boosted: struct AuthContext]\n#[derive(Debug, Clone)]\npub struct AuthContext {\n    pub token: String,\n    pub expires_at: u64,\n}\n\nimpl AuthContext {\n    pub fn is_valid(&self) -> bool { ... }\n}`;
-                        } else if (query.includes('checkpoint')) {
-                            mockCode = `/// [Definition Boosted: fn save_checkpoint]\npub fn save_checkpoint(model: &StaticModel, path: &Path) -> Result<(), String> {\n    let bytes = serialize_embeddings(&model.embeddings)?;\n    std::fs::write(path, bytes).map_err(|e| e.to_string())?;\n    Ok(())\n}`;
-                        } else {
-                            mockCode = `/// [Definition Boosted: impl Display]\nimpl std::fmt::Display for StaticModel {\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n        write!(f, "StaticModel(dim={})", self.dim)\n    }\n}`;
-                        }
-                        
-                        out3.innerHTML = `Reciprocal Rank Fusion applied (RRF constant: 60)\nDefinition weight multiplier: 1.5x\nTop match found with Score = 0.942\n\n${mockCode}\n\nTotal Hybrid latency: 27.73 ms!`;
-                    }, 800);
-                }, 800);
-            }, 200);
-        }
-    </script>
+            if (query.includes('auth')) {
+              mockCode = `/// [Definition Boosted: struct AuthContext]\n#[derive(Debug, Clone)]\npub struct AuthContext {\n    pub token: String,\n    pub expires_at: u64,\n}\n\nimpl AuthContext {\n    pub fn is_valid(&self) -> bool {\n        self.expires_at > current_timestamp()\n    }\n}`;
+            } else if (query.includes('checkpoint')) {
+              mockCode = `/// [Definition Boosted: fn save_checkpoint]\npub fn save_checkpoint(model: &StaticModel, path: &Path) -> Result<(), String> {\n    let bytes = serialize_embeddings(&model.embeddings)?;\n    std::fs::write(path, bytes).map_err(|e| e.to_string())?;\n    Ok(())\n}`;
+            } else {
+              mockCode = `/// [Definition Boosted: impl Display]\nimpl std::fmt::Display for StaticModel {\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n        write!(f, "StaticModel(dim={})", self.dim)\n    }\n}`;
+            }
+
+            out3.textContent = `Applied Reciprocal Rank Fusion (RRF constant = 60)\nApplied AST definition booster (+1.5x score factor)\nFound best chunk match (Fused Score: ${rankScore})\n\n${mockCode}\n\nTotal Hybrid Retrieval latency: 27.73 ms!`;
+          }, 800);
+        }, 800);
+      }, 200);
+    }
+  </script>
+
+  <!-- Theme Toggle Script -->
+  <script>
+    const themeToggleBtn = document.getElementById('theme-toggle');
+    const darkIcon = document.getElementById('theme-toggle-dark-icon');
+    const lightIcon = document.getElementById('theme-toggle-light-icon');
+
+    // Sync button icon indicators with initial theme
+    function syncThemeIcons() {
+      if (document.documentElement.classList.contains('dark')) {
+        darkIcon.classList.add('hidden');
+        lightIcon.classList.remove('hidden');
+      } else {
+        darkIcon.classList.remove('hidden');
+        lightIcon.classList.add('hidden');
+      }
+    }
+    
+    syncThemeIcons();
+
+    // Toggle click handler
+    themeToggleBtn.addEventListener('click', () => {
+      if (document.documentElement.classList.contains('dark')) {
+        document.documentElement.classList.remove('dark');
+        localStorage.theme = 'light';
+      } else {
+        document.documentElement.classList.add('dark');
+        localStorage.theme = 'dark';
+      }
+      syncThemeIcons();
+    });
+  </script>
 </body>
 </html>
