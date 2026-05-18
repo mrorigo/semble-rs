@@ -1,3 +1,5 @@
+// Rust guideline compliant 2026-05-18
+
 use std::fs;
 use std::path::Path;
 
@@ -9,6 +11,32 @@ use crate::index::sparse::build_index;
 use crate::types::{Chunk, Encoder};
 use crate::utils::trace;
 
+/// Creates a complete code search index from a local path.
+///
+/// Walks files recursively under `path`, parses their language structures using
+/// Tree-sitter structural chunking, encodes chunks using a static Model2Vec model,
+/// and builds a BM25 lexical index.
+///
+/// # Arguments
+///
+/// * `path` - The root directory path containing code files to index.
+/// * `model` - The static model or encoder used to embed the code chunks.
+/// * `extensions` - Optional slice of file extension strings to filter the parsed files.
+/// * `include_text_files` - If true, text files are parsed as line-split fallbacks.
+/// * `display_root` - Optional display root path used to format relative paths.
+///
+/// # Returns
+///
+/// Returns a tuple containing:
+/// 1. The built lexical BM25 index.
+/// 2. The built semantic dense vector search backend.
+/// 3. The vector of all discovered chunks.
+///
+/// # Errors
+///
+/// Returns an `Err` if:
+/// * No files are found, or no supported files can be parsed under `path`.
+/// * Disk operations fail during the walk phase.
 pub fn create_index_from_path(
     path: &Path,
     model: &impl Encoder,
@@ -71,6 +99,13 @@ pub fn create_index_from_path(
     Ok((bm25, semantic, chunks))
 }
 
+/// Retrieves the default static representation model for code search.
+///
+/// By default, `semble-rs` utilizes the `minishlab/potion-code-16M` static model.
+///
+/// # Returns
+///
+/// A pre-trained, static Model2Vec `StaticModel` instance.
 pub fn default_model() -> StaticModel {
     StaticModel::from_pretrained("minishlab/potion-code-16M")
 }

@@ -1,3 +1,5 @@
+// Rust guideline compliant 2026-05-18
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -15,6 +17,11 @@ const DEFAULT_TOKENIZER_FILENAME: &str = "tokenizer.json";
 const DEFAULT_EMBEDDINGS_FILENAME: &str = "embeddings.bin";
 const DEFAULT_WEIGHTS_FILENAME: &str = "weights.bin";
 
+/// A static word representation encoder backed by Model2Vec/Potion models.
+///
+/// Encodes raw token sequences into dense, normalized floating-point vectors
+/// using static token embeddings. Falls back to a deterministic hashing
+/// backend if model files cannot be loaded.
 #[derive(Clone)]
 pub struct StaticModel {
     backend: Arc<ModelBackend>,
@@ -60,30 +67,20 @@ impl BinaryStaticModel {
                 manifest.embedding_dim, EMBED_DIM
             ));
         }
+
         let embeddings = read_f32_file(&embeddings_path)?;
         let token_weights = read_f32_file(&weights_path)?;
-        if embeddings.is_empty() {
-            return Err(format!("{} is empty", embeddings_path.display()));
-        }
-        if token_weights.is_empty() {
-            return Err(format!("{} is empty", weights_path.display()));
-        }
-        if embeddings.len() % EMBED_DIM != 0 {
+
+        let vocab_size = token_weights.len();
+        if embeddings.len() != vocab_size * EMBED_DIM {
             return Err(format!(
-                "{} size {} is not divisible by embedding dim {}",
-                embeddings_path.display(),
+                "embeddings buffer size {} does not match expected size of vocab_size * dim ({} * {})",
                 embeddings.len(),
+                vocab_size,
                 EMBED_DIM
             ));
         }
-        let vocab_size = embeddings.len() / EMBED_DIM;
-        if vocab_size != token_weights.len() {
-            return Err(format!(
-                "embedding vocab size {} does not match token weights size {}",
-                vocab_size,
-                token_weights.len()
-            ));
-        }
+
         Ok(Self {
             tokenizer,
             embeddings,
@@ -144,6 +141,16 @@ impl BinaryStaticModel {
 }
 
 impl StaticModel {
+    /// Loads a pre-trained Model2Vec model from a local directory or model reference.
+    ///
+    /// # Arguments
+    ///
+    /// * `model_ref` - Path to a directory containing the model files or a Hugging Face model ID.
+    ///
+    /// # Returns
+    ///
+    /// Returns a loaded `StaticModel` instance, or falls back to a hashing model
+    /// if loading fails.
     pub fn from_pretrained(model_ref: impl AsRef<str>) -> Self {
         let model_ref = model_ref.as_ref();
         match resolve_model_dir(model_ref).and_then(|dir| BinaryStaticModel::load(&dir)) {
@@ -179,10 +186,29 @@ impl Encoder for StaticModel {
     }
 }
 
+/// Helper utility to load the default semantic Model2Vec static representation model.
+///
+/// # Arguments
+///
+/// * `model_path` - Optional model identifier or directory path. If `None`, defaults to the main code-focused Potion model.
+///
+/// # Returns
+///
+/// A constructed `StaticModel` instance.
 pub fn load_model(model_path: Option<&str>) -> StaticModel {
     StaticModel::from_pretrained(model_path.unwrap_or(DEFAULT_MODEL_ID))
 }
 
+/// Encodes a list of code structural chunks into dense floating-point embeddings.
+///
+/// # Arguments
+///
+/// * `model` - The vector encoder used to transform code text into embeddings.
+/// * `chunks` - The list of structural code chunks to encode.
+///
+/// # Returns
+///
+/// A vector of 256-dimensional normalized floating-point arrays representing each chunk.
 pub fn embed_chunks(model: &impl Encoder, chunks: &[Chunk]) -> Vec<[f32; EMBED_DIM]> {
     if chunks.is_empty() {
         return vec![];
@@ -258,6 +284,17 @@ fn normalize(values: &mut [f32; EMBED_DIM]) {
     }
 }
 
+/// Computes a deterministic token-hashing dense representation fallback for input text.
+///
+/// Used when static Model2Vec weights or model tokenizers are not available.
+///
+/// # Arguments
+///
+/// * `text` - The input string to embed.
+///
+/// # Returns
+///
+/// A normalized 256-dimensional floating point representation.
 pub fn hash_embed_text(text: &str) -> [f32; EMBED_DIM] {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};

@@ -1,3 +1,5 @@
+// Rust guideline compliant 2026-05-18
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -17,6 +19,18 @@ const DEFAULT_IGNORED_DIRS: &[&str] = &[
     "target",
 ];
 
+/// Recursively walks the directory tree under `root`, discovering files with matching extensions.
+///
+/// Automatically respects gitignore-style patterns and standard directory exclusion rules.
+///
+/// # Arguments
+///
+/// * `root` - The starting directory path to walk.
+/// * `extensions` - List of allowed file extensions to match.
+///
+/// # Returns
+///
+/// A sorted vector of absolute paths to matching files.
 pub fn walk_files(root: &Path, extensions: &[String]) -> Vec<PathBuf> {
     trace(format!(
         "walk_files root={} extensions={:?}",
