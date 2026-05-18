@@ -249,7 +249,7 @@ Under a realistic workspace workload (~300 files, ~2,500 chunks):
 - 🌳 **AST Chunker Efficiency**: Tree-sitter Rust chunks a 2,000-line source file structurally in **4.6 ms** (outperforming standard line-splitting by **15.8x**).
 - 📈 **Flat Scaling Profile**: Upgrading `top_k` from `5` to `50` adds only **~2.6 ms** of latency, proving downstream ranking phases are extremely cheap.
 
-For complete benchmarks and raw timing charts, refer to the full **[PERFORMANCE_REPORT.md](file:///Users/origo/src/semble-port/semble-rs/PERFORMANCE_REPORT.md)**.
+For complete benchmarks and raw timing charts, refer to the full **[PERFORMANCE_REPORT.md](docs/PERFORMANCE_REPORT.md)**.
 
 ### Running Benchmarks
 
