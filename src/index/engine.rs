@@ -1,0 +1,246 @@
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use crate::index::create::create_index_from_path;
+use crate::index::dense::{SelectableBasicBackend, StaticModel, load_model};
+use crate::index::sparse::Bm25Index;
+use crate::search::{search_bm25, search_hybrid, search_semantic};
+use crate::stats::save_search_stats;
+use crate::types::{CallType, Chunk, IndexStats, SearchMode, SearchResult};
+use crate::utils::{resolve_chunk, trace};
+
+#[derive(Debug, Clone)]
+pub struct SembleIndex {
+    pub model: StaticModel,
+    pub chunks: Vec<Chunk>,
+    bm25_index: Bm25Index,
+    semantic_index: SelectableBasicBackend,
+    file_sizes: HashMap<String, usize>,
+    file_mapping: HashMap<String, Vec<usize>>,
+    language_mapping: HashMap<String, Vec<usize>>,
+}
+
+impl SembleIndex {
+    pub fn new(
+        model: StaticModel,
+        bm25_index: Bm25Index,
+        semantic_index: SelectableBasicBackend,
+        chunks: Vec<Chunk>,
+        root: Option<PathBuf>,
+    ) -> Self {
+        let file_sizes = root
+            .as_ref()
+            .map(|r| compute_file_sizes(&chunks, r))
+            .unwrap_or_default();
+        let (file_mapping, language_mapping) = populate_mapping(&chunks);
+        Self {
+            model,
+            chunks,
+            bm25_index,
+            semantic_index,
+            file_sizes,
+            file_mapping,
+            language_mapping,
+        }
+    }
+
+    pub fn stats(&self) -> IndexStats {
+        let mut languages = std::collections::BTreeMap::new();
+        for chunk in &self.chunks {
+            if let Some(lang) = &chunk.language {
+                *languages.entry(lang.clone()).or_insert(0) += 1;
+            }
+        }
+        IndexStats {
+            indexed_files: self.file_mapping.len(),
+            total_chunks: self.chunks.len(),
+            languages,
+        }
+    }
+
+    pub fn from_path(
+        path: impl AsRef<Path>,
+        model: Option<StaticModel>,
+        extensions: Option<&[&str]>,
+        include_text_files: bool,
+    ) -> Result<Self, String> {
+        let path = path.as_ref();
+        trace(format!("SembleIndex::from_path path={}", path.display()));
+        if !path.exists() {
+            return Err(format!("Path does not exist: {}", path.display()));
+        }
+        if !path.is_dir() {
+            return Err(format!("Path is not a directory: {}", path.display()));
+        }
+        let model = model.unwrap_or_else(|| load_model(None));
+        let path = path.canonicalize().map_err(|e| e.to_string())?;
+        let (bm25, semantic, chunks) =
+            create_index_from_path(&path, &model, extensions, include_text_files, Some(&path))?;
+        Ok(Self::new(model, bm25, semantic, chunks, Some(path)))
+    }
+
+    pub fn from_git(
+        url: &str,
+        ref_name: Option<&str>,
+        model: Option<StaticModel>,
+        extensions: Option<&[&str]>,
+        include_text_files: bool,
+    ) -> Result<Self, String> {
+        trace(format!("SembleIndex::from_git url={} ref={:?}", url, ref_name));
+        let tmp = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let clone_path = tmp.path().to_path_buf();
+        let mut cmd = Command::new("git");
+        cmd.args(["clone", "--depth", "1"]);
+        if let Some(r) = ref_name {
+            cmd.args(["--branch", r]);
+        }
+        cmd.args(["--", url, clone_path.to_str().unwrap()]);
+        let output = cmd.output().map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err(format!(
+                "git clone failed for {:?}: {}",
+                url,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        let model = model.unwrap_or_else(|| load_model(None));
+        let path = clone_path.canonicalize().map_err(|e| e.to_string())?;
+        std::mem::forget(tmp);
+        let (bm25, semantic, chunks) =
+            create_index_from_path(&path, &model, extensions, include_text_files, Some(&path))?;
+        Ok(Self::new(model, bm25, semantic, chunks, Some(path)))
+    }
+
+    fn selector(
+        &self,
+        filter_languages: Option<&[String]>,
+        filter_paths: Option<&[String]>,
+    ) -> Option<Vec<usize>> {
+        let mut selector = Vec::new();
+        if let Some(langs) = filter_languages {
+            for lang in langs {
+                selector.extend(self.language_mapping.get(lang).cloned().unwrap_or_default());
+            }
+        }
+        if let Some(paths) = filter_paths {
+            for path in paths {
+                selector.extend(self.file_mapping.get(path).cloned().unwrap_or_default());
+            }
+        }
+        if selector.is_empty() {
+            None
+        } else {
+            selector.sort_unstable();
+            selector.dedup();
+            Some(selector)
+        }
+    }
+
+    pub fn find_related(&self, source: &Chunk, top_k: usize) -> Vec<SearchResult> {
+        let selector = source.language.as_ref().map(|lang| vec![lang.clone()]);
+        let filter = self.selector(selector.as_deref(), None);
+        let results = search_semantic(
+            &source.content,
+            &self.model,
+            &self.semantic_index,
+            &self.chunks,
+            top_k + 1,
+            filter.as_deref(),
+        )
+        .into_iter()
+        .filter(|r| r.chunk != *source)
+        .take(top_k)
+        .collect::<Vec<_>>();
+        save_search_stats(&results, CallType::FindRelated, &self.file_sizes);
+        results
+    }
+
+    pub fn search(
+        &self,
+        query: &str,
+        top_k: usize,
+        mode: SearchMode,
+        alpha: Option<f32>,
+        filter_languages: Option<&[String]>,
+        filter_paths: Option<&[String]>,
+    ) -> Vec<SearchResult> {
+        if self.chunks.is_empty() || query.trim().is_empty() {
+            return vec![];
+        }
+        let selector = self.selector(filter_languages, filter_paths);
+        let results = match mode {
+            SearchMode::Bm25 => search_bm25(
+                query,
+                &self.bm25_index,
+                &self.chunks,
+                top_k,
+                selector.as_deref(),
+            ),
+            SearchMode::Semantic => search_semantic(
+                query,
+                &self.model,
+                &self.semantic_index,
+                &self.chunks,
+                top_k,
+                selector.as_deref(),
+            ),
+            SearchMode::Hybrid => search_hybrid(
+                query,
+                &self.model,
+                &self.semantic_index,
+                &self.bm25_index,
+                &self.chunks,
+                top_k,
+                alpha,
+                selector.as_deref(),
+            ),
+        };
+        save_search_stats(&results, CallType::Search, &self.file_sizes);
+        results
+    }
+
+    pub fn find_related_by_location(
+        &self,
+        file_path: &str,
+        line: usize,
+        top_k: usize,
+    ) -> Option<Vec<SearchResult>> {
+        let chunk = resolve_chunk(&self.chunks, file_path, line)?;
+        Some(self.find_related(&chunk, top_k))
+    }
+}
+
+fn populate_mapping(
+    chunks: &[Chunk],
+) -> (HashMap<String, Vec<usize>>, HashMap<String, Vec<usize>>) {
+    let mut file_map = HashMap::new();
+    let mut lang_map = HashMap::new();
+    for (i, c) in chunks.iter().enumerate() {
+        file_map
+            .entry(c.file_path.clone())
+            .or_insert_with(Vec::new)
+            .push(i);
+        if let Some(lang) = &c.language {
+            lang_map
+                .entry(lang.clone())
+                .or_insert_with(Vec::new)
+                .push(i);
+        }
+    }
+    (file_map, lang_map)
+}
+
+fn compute_file_sizes(chunks: &[Chunk], root: &Path) -> HashMap<String, usize> {
+    let mut sizes = HashMap::new();
+    for chunk in chunks {
+        if sizes.contains_key(&chunk.file_path) {
+            continue;
+        }
+        let path = root.join(&chunk.file_path);
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            sizes.insert(chunk.file_path.clone(), text.len());
+        }
+    }
+    sizes
+}

@@ -1,3 +1,3 @@
 fn main() {
-    println!("Hello, world!");
+    semble_rs::cli::main();
 }
