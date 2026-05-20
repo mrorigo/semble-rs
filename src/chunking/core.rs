@@ -70,22 +70,72 @@ pub fn boundaries_to_chunks(
 ) -> Vec<Chunk> {
     boundaries
         .into_iter()
-        .map(|boundary| {
-            let end_index = boundary.end.saturating_sub(1).max(boundary.start);
-            let text = source[boundary.start..=end_index].to_string();
-            let start_line = source[..boundary.start]
-                .chars()
-                .filter(|&c| c == '\n')
-                .count()
-                + 1;
-            let end_line = source[..end_index].chars().filter(|&c| c == '\n').count() + 1;
-            Chunk {
+        .filter_map(|boundary| {
+            let start = previous_char_boundary(source, boundary.start.min(source.len()));
+            let end = next_char_boundary(source, boundary.end.min(source.len()));
+            if start >= end {
+                return None;
+            }
+            let text = source[start..end].to_string();
+            let start_line = source[..start].chars().filter(|&c| c == '\n').count() + 1;
+            let end_line = source[..end].chars().filter(|&c| c == '\n').count() + 1;
+            Some(Chunk {
                 content: text,
                 file_path: file_path.to_string(),
                 start_line,
                 end_line,
                 language: language.clone(),
-            }
+            })
         })
         .collect()
+}
+
+fn previous_char_boundary(source: &str, mut index: usize) -> usize {
+    while index > 0 && !source.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
+}
+
+fn next_char_boundary(source: &str, mut index: usize) -> usize {
+    while index < source.len() && !source.is_char_boundary(index) {
+        index += 1;
+    }
+    index.min(source.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ChunkBoundary, boundaries_to_chunks};
+
+    #[test]
+    fn clamps_boundaries_to_utf8_char_edges() {
+        let source = "aé\nb";
+        let chunks = boundaries_to_chunks(
+            source,
+            "sample.rs",
+            Some("rust".to_string()),
+            vec![ChunkBoundary { start: 2, end: 4 }],
+        );
+
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].content, "é\n");
+        assert_eq!(chunks[0].start_line, 1);
+        assert_eq!(chunks[0].end_line, 2);
+        assert_eq!(chunks[0].file_path, "sample.rs");
+        assert_eq!(chunks[0].language.as_deref(), Some("rust"));
+    }
+
+    #[test]
+    fn drops_empty_boundaries_after_clamping() {
+        let source = "é";
+        let chunks = boundaries_to_chunks(
+            source,
+            "sample.rs",
+            None,
+            vec![ChunkBoundary { start: 3, end: 3 }],
+        );
+
+        assert!(chunks.is_empty());
+    }
 }
