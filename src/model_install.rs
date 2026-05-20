@@ -83,7 +83,13 @@ pub fn install_model(model_id: &str, destination: &Path, force: bool) -> Result<
     for filename in ["tokenizer.json", "embeddings.bin", "weights.bin"] {
         let url = format!("{}/{}?download=1", base_url, filename);
         let path = destination.join(filename);
-        download_to_path(&url, &path)?;
+        if let Err(err) = download_to_path(&url, &path) {
+            trace(format!(
+                "download failed for {}: {}; falling back to bundled assets",
+                filename, err
+            ));
+            return install_from_bundled_assets(model_id, destination, err);
+        }
     }
 
     let manifest = ModelManifest {
@@ -98,6 +104,54 @@ pub fn install_model(model_id: &str, destination: &Path, force: bool) -> Result<
         },
     };
     write_manifest(destination, &manifest)?;
+    Ok(())
+}
+
+fn install_from_bundled_assets(
+    model_id: &str,
+    destination: &Path,
+    download_error: String,
+) -> Result<(), String> {
+    if model_id != DEFAULT_MODEL_ID {
+        return Err(format!(
+            "{}; bundled fallback is only available for {}",
+            download_error, DEFAULT_MODEL_ID
+        ));
+    }
+
+    let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("assets")
+        .join("model");
+    for filename in [
+        "tokenizer.json",
+        "embeddings.bin",
+        "weights.bin",
+        "manifest.json",
+    ] {
+        let src = bundled.join(filename);
+        let dst = destination.join(filename);
+        if !src.exists() {
+            return Err(format!(
+                "{}; fallback failed because bundled asset is missing: {}",
+                download_error,
+                src.display()
+            ));
+        }
+        fs::copy(&src, &dst).map_err(|e| {
+            format!(
+                "{}; fallback failed while copying {} to {}: {}",
+                download_error,
+                src.display(),
+                dst.display(),
+                e
+            )
+        })?;
+    }
+
+    trace(format!(
+        "installed fallback bundled model assets into {}",
+        destination.display()
+    ));
     Ok(())
 }
 
@@ -176,7 +230,7 @@ fn safe_model_name(model_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::safe_model_name;
+    use super::{DEFAULT_MODEL_ID, install_from_bundled_assets, read_manifest, safe_model_name};
 
     #[test]
     fn sanitizes_model_name() {
@@ -184,5 +238,38 @@ mod tests {
             safe_model_name("minishlab/potion-code-16M"),
             "minishlab_potion-code-16M"
         );
+    }
+
+    #[test]
+    fn installs_bundled_assets_for_default_model() {
+        let dir = tempfile::tempdir().unwrap();
+
+        install_from_bundled_assets(DEFAULT_MODEL_ID, dir.path(), "download failed".to_string())
+            .unwrap();
+
+        for filename in [
+            "tokenizer.json",
+            "embeddings.bin",
+            "weights.bin",
+            "manifest.json",
+        ] {
+            assert!(dir.path().join(filename).exists(), "missing {filename}");
+        }
+        assert_eq!(
+            read_manifest(dir.path()).unwrap().model_id,
+            DEFAULT_MODEL_ID
+        );
+    }
+
+    #[test]
+    fn rejects_bundled_fallback_for_non_default_model() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let err =
+            install_from_bundled_assets("other/model", dir.path(), "download failed".to_string())
+                .unwrap_err();
+
+        assert!(err.contains("bundled fallback is only available"));
+        assert!(!dir.path().join("manifest.json").exists());
     }
 }
