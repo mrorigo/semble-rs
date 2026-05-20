@@ -13,6 +13,21 @@ const MODEL_FILES: [&str; 4] = [
     "weights.bin",
     "manifest.json",
 ];
+const BUNDLED_MODEL_FILES: [(&str, &[u8]); 4] = [
+    (
+        "tokenizer.json",
+        include_bytes!("../assets/model/tokenizer.json"),
+    ),
+    (
+        "embeddings.bin",
+        include_bytes!("../assets/model/embeddings.bin"),
+    ),
+    ("weights.bin", include_bytes!("../assets/model/weights.bin")),
+    (
+        "manifest.json",
+        include_bytes!("../assets/model/manifest.json"),
+    ),
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelManifest {
@@ -119,29 +134,13 @@ fn install_from_bundled_assets(
         ));
     }
 
-    let bundled = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("assets")
-        .join("model");
-    for filename in [
-        "tokenizer.json",
-        "embeddings.bin",
-        "weights.bin",
-        "manifest.json",
-    ] {
-        let src = bundled.join(filename);
+    for (filename, contents) in BUNDLED_MODEL_FILES {
         let dst = destination.join(filename);
-        if !src.exists() {
-            return Err(format!(
-                "{}; fallback failed because bundled asset is missing: {}",
-                download_error,
-                src.display()
-            ));
-        }
-        fs::copy(&src, &dst).map_err(|e| {
+        fs::write(&dst, contents).map_err(|e| {
             format!(
-                "{}; fallback failed while copying {} to {}: {}",
+                "{}; fallback failed while writing embedded asset {} to {}: {}",
                 download_error,
-                src.display(),
+                filename,
                 dst.display(),
                 e
             )
