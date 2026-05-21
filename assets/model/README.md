@@ -17,4 +17,4 @@ Use the Python export flow described in `BIN_MODEL.md`:
 
 ## Runtime behavior
 
-`semble-rs` will load these files automatically when they are present. If they are missing, the binary falls back to the legacy hashing encoder so the rest of the search stack remains usable during development.
+`semble-rs` embeds these files in the binary for the default model and loads them directly from memory at runtime. If you supply a local override directory, the loader reads the files into memory and does not write anything back out.
