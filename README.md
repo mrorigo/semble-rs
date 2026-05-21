@@ -12,7 +12,7 @@ It is designed as a practical CLI and MCP server for local repositories and git 
 - BM25 lexical retrieval for exact identifier matches
 - Hybrid ranking with reranking heuristics for code search
 - CLI and MCP server support
-- Model assets cached locally and installed on demand
+- Model assets embedded for the default Potion model
 
 ## ⚖️ Comparison with Original Python Semble & Feature Gap
 
@@ -81,29 +81,18 @@ At runtime, `semble-rs` looks for the following files:
 - `weights.bin`
 - `manifest.json`
 
-### Install the model cache
+### Bundled model assets
 
-To download the assets into the local cache ahead of time:
+The default Potion model ships embedded in the binary, so normal startup does not download or write model files to disk.
 
-```text
-semble model install
-```
+If you want to use a local override directory, point `SEMBLE_MODEL_DIR` at a directory containing:
 
-You can also force a re-download:
+- `tokenizer.json`
+- `embeddings.bin`
+- `weights.bin`
+- `manifest.json`
 
-```text
-semble model install --force
-```
-
-By default, the model cache is stored in a platform-appropriate cache directory. You can override it with:
-
-- `SEMBLE_MODEL_CACHE`
-
-The installer downloads the assets from Hugging Face and stores them in a per-model cache directory.
-
-### First-run behavior
-
-If the model assets are not already present, the Rust loader will try to install them automatically on first use. That keeps the normal user flow simple while still allowing an explicit prefetch step for air-gapped or scripted environments.
+The loader reads those files into memory and does not populate a cache directory.
 
 ## CLI
 
@@ -125,12 +114,6 @@ semble search "save model to disk" ./my-project --mode bm25
 
 ```text
 semble find-related src/auth.rs 42 ./my-project
-```
-
-### Install or refresh model assets
-
-```text
-semble model install
 ```
 
 ### Initialize the Claude Code agent file
@@ -286,14 +269,13 @@ open target/criterion/report/index.html
 The Rust binary recognizes a few useful environment variables:
 
 - `SEMBLE_TRACE=1` — enable trace logging to stderr
-- `SEMBLE_MODEL_CACHE` — override the local model cache directory
 - `SEMBLE_MODEL_DIR` — point the encoder at a local model asset directory
 
 ## Troubleshooting
 
-### The model download is slow
+### The model files are missing
 
-The first install fetches the tokenizer and model binaries from Hugging Face. Subsequent runs use the local cache.
+Set `SEMBLE_MODEL_DIR` to a directory that contains the bundled asset files if you want to override the default embedded model.
 
 ### Search returns no results
 
@@ -301,7 +283,7 @@ Check that:
 
 - the repository path is correct
 - the repository contains supported file types
-- the model assets are installed and valid
+- the embedded model assets are intact, or `SEMBLE_MODEL_DIR` points at a valid override directory
 - `SEMBLE_TRACE=1` is set if you want step-by-step runtime logging
 
 ### The CLI cannot find `semble`
