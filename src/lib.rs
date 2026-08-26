@@ -2,7 +2,6 @@ pub mod chunking;
 pub mod cli;
 pub mod index;
 pub mod mcp;
-pub mod model_install;
 pub mod ranking;
 pub mod search;
 pub mod stats;
