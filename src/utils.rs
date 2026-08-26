@@ -126,6 +126,62 @@ pub fn file_chunk_ranges(chunks: &[Chunk], file_path: &str) -> Vec<(usize, usize
     ranges
 }
 
+/// Maximum number of characters of chunk content emitted per result before
+/// truncation. Long enough for most functions; short enough to keep tool
+/// output token-friendly.
+const MAX_CONTENT_CHARS: usize = 2000;
+
+/// Maps a file extension to a fenced-code-block language tag.
+///
+/// Returns `None` for unrecognized extensions so no tag is emitted.
+fn fence_language(file_path: &str) -> Option<&'static str> {
+    let ext = std::path::Path::new(file_path)
+        .extension()
+        .and_then(|e| e.to_str())?;
+    let lang = match ext.to_ascii_lowercase().as_str() {
+        "rs" => "rust",
+        "py" => "python",
+        "js" | "mjs" | "cjs" => "javascript",
+        "jsx" => "jsx",
+        "ts" | "mts" | "cts" => "typescript",
+        "tsx" => "tsx",
+        "go" => "go",
+        "java" => "java",
+        "c" | "h" => "c",
+        "cc" | "cpp" | "cxx" | "hpp" | "hh" => "cpp",
+        "cs" => "csharp",
+        "rb" => "ruby",
+        "php" => "php",
+        "swift" => "swift",
+        "kt" | "kts" => "kotlin",
+        "sh" | "bash" | "zsh" => "shell",
+        "md" | "markdown" => "markdown",
+        "json" => "json",
+        "yaml" | "yml" => "yaml",
+        "toml" => "toml",
+        "html" | "htm" => "html",
+        "css" | "scss" | "sass" => "css",
+        "sql" => "sql",
+        _ => return None,
+    };
+    Some(lang)
+}
+
+/// Truncates chunk content to [`MAX_CONTENT_CHARS`] on a char boundary,
+/// appending an explicit marker so consumers know more text exists.
+fn truncate_content(content: &str) -> String {
+    if content.chars().count() <= MAX_CONTENT_CHARS {
+        return content.to_string();
+    }
+    let truncated: String = content.chars().take(MAX_CONTENT_CHARS).collect();
+    format!(
+        "{}\n... [truncated, showing {} of {} chars]",
+        truncated.trim_end(),
+        MAX_CONTENT_CHARS,
+        content.chars().count()
+    )
+}
+
 pub fn trace(message: impl AsRef<str>) {
     if std::env::var_os("SEMBLE_TRACE").is_some() {
         eprintln!("[semble] {}", message.as_ref());
@@ -144,8 +200,11 @@ pub fn format_results(header: &str, results: &[SearchResult]) -> String {
             r.chunk.location(),
             r.score
         ));
-        out.push_str("```\n");
-        out.push_str(r.chunk.content.trim());
+        match fence_language(&r.chunk.file_path) {
+            Some(lang) => out.push_str(&format!("```{}\n", lang)),
+            None => out.push_str("```\n"),
+        }
+        out.push_str(truncate_content(r.chunk.content.trim()).as_str());
         out.push_str("\n```\n\n");
     }
     out
@@ -153,8 +212,11 @@ pub fn format_results(header: &str, results: &[SearchResult]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{file_chunk_ranges, normalize_file_path, resolve_chunk, resolve_chunk_detailed};
-    use crate::types::Chunk;
+    use super::{
+        MAX_CONTENT_CHARS, fence_language, file_chunk_ranges, format_results, normalize_file_path,
+        resolve_chunk, resolve_chunk_detailed, truncate_content,
+    };
+    use crate::types::{Chunk, SearchMode, SearchResult};
 
     fn chunk(file_path: &str, start_line: usize, end_line: usize) -> Chunk {
         Chunk {
@@ -210,6 +272,42 @@ mod tests {
         ];
         assert_eq!(file_chunk_ranges(&chunks, "a.rs"), vec![(1, 10), (40, 50)]);
         assert!(file_chunk_ranges(&chunks, "nope.rs").is_empty());
+    }
+
+    #[test]
+    fn maps_extensions_to_fence_languages() {
+        assert_eq!(fence_language("src/main.rs"), Some("rust"));
+        assert_eq!(fence_language("app.py"), Some("python"));
+        assert_eq!(fence_language("a.JS"), Some("javascript"));
+        assert_eq!(fence_language("data.weird"), None);
+        assert_eq!(fence_language("noext"), None);
+    }
+
+    #[test]
+    fn truncates_long_content_with_marker() {
+        let short = truncate_content("hello");
+        assert_eq!(short, "hello");
+        let long = "x".repeat(MAX_CONTENT_CHARS + 500);
+        let out = truncate_content(&long);
+        assert!(out.contains("[truncated, showing 2000 of 2500 chars]"));
+        assert!(out.len() < long.len());
+    }
+
+    #[test]
+    fn formats_results_with_language_fence() {
+        let result = SearchResult {
+            chunk: Chunk {
+                content: "fn main() {}".to_string(),
+                file_path: "src/main.rs".to_string(),
+                start_line: 1,
+                end_line: 1,
+                language: None,
+            },
+            score: 0.5,
+            source: SearchMode::Hybrid,
+        };
+        let out = format_results("header", &[result]);
+        assert!(out.contains("```rust\nfn main() {}"));
     }
 
     #[test]

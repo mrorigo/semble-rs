@@ -117,7 +117,7 @@ impl IndexCache {
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 #[mcp_tool(
     name = "search",
-    description = "Search a codebase using semantic, BM25, or hybrid ranking.",
+    description = "Search a codebase using semantic, BM25, or hybrid ranking. Hybrid (default) blends both and is best for natural-language queries; use mode=\"bm25\" for exact symbol or identifier matches and mode=\"semantic\" for concept-only queries.",
     title = "Semble search",
     idempotent_hint = true,
     destructive_hint = false,
@@ -125,16 +125,23 @@ impl IndexCache {
     read_only_hint = true
 )]
 pub struct SearchTool {
+    /// The search query. Natural-language phrases work well for hybrid/semantic
+    /// modes; identifiers and symbols work well for bm25.
     pub query: String,
+    /// Repository to search: an https:// or http:// git URL, or a local
+    /// directory path. Omit to search the server's default working directory.
     pub repo: Option<String>,
+    /// Search strategy: "hybrid" (default), "bm25" (lexical/exact), or
+    /// "semantic" (embeddings only).
     pub mode: Option<String>,
+    /// Maximum number of results to return (default 5).
     pub top_k: Option<u32>,
 }
 
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
 #[mcp_tool(
     name = "find_related",
-    description = "Find code semantically related to a specific file path and line number.",
+    description = "Find code semantically related to the chunk containing a given file path and line number. Accepts absolute paths or paths relative to the repository root; if no chunk exactly contains the line, the nearest chunk is used.",
     title = "Semble find related",
     idempotent_hint = true,
     destructive_hint = false,
@@ -142,9 +149,16 @@ pub struct SearchTool {
     read_only_hint = true
 )]
 pub struct FindRelatedTool {
+    /// Path of the file to start from: absolute or relative to the repository
+    /// root (e.g., "src/cli.rs").
     pub file_path: String,
+    /// Line number within the file (1-based). Anchoring on a function signature
+    /// or type declaration gives the best results.
     pub line: u32,
+    /// Repository to search: an https:// or http:// git URL, or a local
+    /// directory path. Omit to search the server's default working directory.
     pub repo: Option<String>,
+    /// Maximum number of results to return (default 5).
     pub top_k: Option<u32>,
 }
 
@@ -174,7 +188,7 @@ impl SearchTool {
         );
         if results.is_empty() {
             return Ok(CallToolResult::text_content(vec![TextContent::from(
-                "No results found.",
+                empty_search_hint(&self.query, mode),
             )]));
         }
         Ok(CallToolResult::text_content(vec![TextContent::from(
@@ -241,9 +255,14 @@ impl FindRelatedTool {
 }
 
 fn resolve_source(repo: Option<&str>, default_source: Option<&str>) -> Result<String, String> {
-    let source = repo.or(default_source).ok_or_else(|| {
-        "No repo specified and no default index. Pass an https:// or http:// git URL or local directory path as `repo`.".to_string()
-    })?;
+    let Some(source) = repo.or(default_source) else {
+        return Err(
+            "No repo specified and no default index configured. Pass `repo` as an \
+             https:// or http:// git URL or a local directory path, or start the \
+             server with --path to set a default."
+                .to_string(),
+        );
+    };
     if is_git_url(source) && !source.starts_with("https://") && !source.starts_with("http://") {
         return Err(format!(
             "Only https://, http://, or local directory paths are accepted as `repo`. Got: {:?}",
@@ -251,6 +270,26 @@ fn resolve_source(repo: Option<&str>, default_source: Option<&str>) -> Result<St
         ));
     }
     Ok(source.to_string())
+}
+
+/// Produces actionable guidance for an empty search result.
+///
+/// Suggestions are mode-specific so agents can retry productively instead of
+/// giving up after one failed query.
+fn empty_search_hint(query: &str, mode: SearchMode) -> String {
+    let mut hint = format!("No results found for {:?} (mode={:?}).", query, mode);
+    match mode {
+        SearchMode::Hybrid => hint.push_str(
+            " Try rephrasing the query in plain language, or use mode=\"bm25\" for exact symbol matches.",
+        ),
+        SearchMode::Semantic => hint.push_str(
+            " Try a more descriptive natural-language phrase, or use mode=\"bm25\" if you are looking for an exact identifier.",
+        ),
+        SearchMode::Bm25 => hint.push_str(
+            " Try the exact identifier as written in the code (including case), or use mode=\"hybrid\" for fuzzy matching.",
+        ),
+    }
+    hint
 }
 
 struct SembleServerHandler {
