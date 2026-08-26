@@ -8,7 +8,7 @@ use crate::index::SembleIndex;
 use crate::mcp::serve;
 use crate::stats::format_savings_report;
 use crate::types::SearchMode;
-use crate::utils::{format_results, is_git_url, resolve_chunk, trace};
+use crate::utils::{format_results, is_git_url, resolve_chunk_detailed, trace};
 
 const CLAUDE_FILE_PATH: &str = ".claude/agents/semble-search.md";
 const CLI_DISPATCH_ARGS: [&str; 8] = [
@@ -164,9 +164,17 @@ fn cli_main() {
                     process::exit(1);
                 }
             };
-            if let Some(chunk) = resolve_chunk(&index.chunks, &index.resolve_path(&file_path), line)
-            {
-                let results = index.find_related(&chunk, top_k);
+            let resolved_path = index.resolve_path(&file_path);
+            if let Some(resolution) = resolve_chunk_detailed(&index.chunks, &resolved_path, line) {
+                if !resolution.exact {
+                    eprintln!(
+                        "note: no exact chunk at {}:{}; using nearest chunk: {}",
+                        file_path,
+                        line,
+                        resolution.chunk.location()
+                    );
+                }
+                let results = index.find_related(&resolution.chunk, top_k);
                 if results.is_empty() {
                     println!("No related chunks found for {}:{}.", file_path, line);
                 } else {

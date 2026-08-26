@@ -18,7 +18,7 @@ use rust_mcp_sdk::{
 use crate::index::SembleIndex;
 use crate::index::dense::load_model;
 use crate::types::SearchMode;
-use crate::utils::{format_results, is_git_url, resolve_chunk, trace};
+use crate::utils::{file_chunk_ranges, format_results, is_git_url, resolve_chunk_detailed, trace};
 
 const CACHE_MAX_SIZE: usize = 10;
 
@@ -195,16 +195,37 @@ impl FindRelatedTool {
         let source = resolve_source(self.repo.as_deref(), default_source)?;
         trace(format!("MCP find_related resolved source={}", source));
         let index = cache.get_blocking(&source, None)?;
-        let Some(chunk) = resolve_chunk(
-            &index.chunks,
-            &index.resolve_path(&self.file_path),
-            self.line as usize,
-        ) else {
-            return Ok(CallToolResult::text_content(vec![TextContent::from(
-                format!("No chunk found at {}:{}.", self.file_path, self.line),
-            )]));
+        let resolved_path = index.resolve_path(&self.file_path);
+        let line = self.line as usize;
+        let Some(resolution) = resolve_chunk_detailed(&index.chunks, &resolved_path, line) else {
+            let ranges = file_chunk_ranges(&index.chunks, &resolved_path);
+            let hint = if ranges.is_empty() {
+                format!(
+                    "No indexed chunks found for {}. It may not be part of the index; try `search` instead.",
+                    self.file_path
+                )
+            } else {
+                let list = ranges
+                    .iter()
+                    .map(|(s, e)| format!("{}-{}", s, e))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "No chunk found at {}:{}.\nIndexed line ranges in this file: {}.",
+                    self.file_path, self.line, list
+                )
+            };
+            return Ok(CallToolResult::text_content(vec![TextContent::from(hint)]));
         };
-        let results = index.find_related(&chunk, self.top_k.unwrap_or(5) as usize);
+        let mut header = format!("Chunks related to {}:{}", self.file_path, self.line);
+        if !resolution.exact {
+            header.push_str(&format!(
+                "\n(No exact chunk at line {}; using nearest chunk: {})",
+                self.line,
+                resolution.chunk.location()
+            ));
+        }
+        let results = index.find_related(&resolution.chunk, self.top_k.unwrap_or(5) as usize);
         if results.is_empty() {
             return Ok(CallToolResult::text_content(vec![TextContent::from(
                 format!(
@@ -214,10 +235,7 @@ impl FindRelatedTool {
             )]));
         }
         Ok(CallToolResult::text_content(vec![TextContent::from(
-            format_results(
-                &format!("Chunks related to {}:{}", self.file_path, self.line),
-                &results,
-            ),
+            format_results(&header, &results),
         )]))
     }
 }
