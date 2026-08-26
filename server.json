@@ -1,0 +1,25 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/registry/main/schema/server.json",
+  "name": "io.github.mrorigo/semble-rs",
+  "title": "Semble Code Search",
+  "description": "Native Rust AST and semantic code search MCP server.",
+  "repository": {
+    "url": "https://github.com/mrorigo/semble-rs",
+    "type": "git"
+  },
+  "version": "0.1.1",
+  "transport": {
+    "type": "stdio"
+  },
+  "packages": [
+    {
+      "type": "binary",
+      "platforms": {
+        "darwin-arm64": "https://github.com/mrorigo/semble-rs/releases/download/v0.1.1/semble-rs-aarch64-apple-darwin.tar.gz",
+        "linux-x64": "https://github.com/mrorigo/semble-rs/releases/download/v0.1.1/semble-rs-x86_64-unknown-linux-gnu.tar.gz",
+        "linux-arm64": "https://github.com/mrorigo/semble-rs/releases/download/v0.1.1/semble-rs-aarch64-unknown-linux-gnu.tar.gz",
+        "win32-x64": "https://github.com/mrorigo/semble-rs/releases/download/v0.1.1/semble-rs-x86_64-pc-windows-msvc.zip"
+      }
+    }
+  ]
+}

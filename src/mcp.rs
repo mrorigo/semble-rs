@@ -289,7 +289,7 @@ pub async fn serve(
                 sizes = ["128x128"],
                 theme = "light"
             )],
-            website_url: Some("https://github.com/origo/semble-port".into()),
+            website_url: Some("https://github.com/mrorigo/semble-rs".into()),
         },
         capabilities: ServerCapabilities {
             tools: Some(ServerCapabilitiesTools { list_changed: None }),

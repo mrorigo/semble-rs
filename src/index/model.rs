@@ -1,4 +1,4 @@
-// Rust guideline compliant 2026-05-21
+// Rust guideline compliant 2026-08-26
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,14 +9,10 @@ use tokenizers::Tokenizer;
 use crate::model_install::{
     DEFAULT_EMBEDDINGS_FILENAME, DEFAULT_MANIFEST_FILENAME, DEFAULT_MODEL_ID,
     DEFAULT_TOKENIZER_FILENAME, DEFAULT_WEIGHTS_FILENAME, ModelManifest,
+    ensure_default_model_assets,
 };
 use crate::types::{Chunk, EMBED_DIM, Encoder};
 use crate::utils::trace;
-
-const DEFAULT_TOKENIZER_BYTES: &[u8] = include_bytes!("../../assets/model/tokenizer.json");
-const DEFAULT_EMBEDDINGS_BYTES: &[u8] = include_bytes!("../../assets/model/embeddings.bin");
-const DEFAULT_WEIGHTS_BYTES: &[u8] = include_bytes!("../../assets/model/weights.bin");
-const DEFAULT_MANIFEST_BYTES: &[u8] = include_bytes!("../../assets/model/manifest.json");
 
 /// A static word representation encoder backed by Model2Vec/Potion models.
 ///
@@ -127,7 +123,7 @@ impl BinaryStaticModel {
 }
 
 impl StaticModel {
-    /// Loads a pre-trained Model2Vec model from embedded bytes or a local directory.
+    /// Loads a pre-trained Model2Vec model from local cached files or a specified directory.
     ///
     /// # Arguments
     ///
@@ -182,7 +178,7 @@ impl Encoder for StaticModel {
 ///
 /// # Arguments
 ///
-/// * `model_path` - Optional local directory path. If `None`, loads the bundled model bytes.
+/// * `model_path` - Optional local directory path. If `None`, loads the default model from cache/assets.
 ///
 /// # Returns
 ///
@@ -231,12 +227,13 @@ fn resolve_model_dir(model_ref: &str) -> Result<PathBuf, String> {
 }
 
 fn load_default_model() -> Result<BinaryStaticModel, String> {
-    BinaryStaticModel::load(
-        DEFAULT_TOKENIZER_BYTES,
-        DEFAULT_EMBEDDINGS_BYTES,
-        DEFAULT_WEIGHTS_BYTES,
-        DEFAULT_MANIFEST_BYTES,
-    )
+    let local_assets = Path::new("assets/model");
+    if crate::model_install::are_model_assets_present(local_assets) {
+        return BinaryStaticModel::load_from_dir(local_assets);
+    }
+
+    let cache_dir = ensure_default_model_assets()?;
+    BinaryStaticModel::load_from_dir(&cache_dir)
 }
 
 fn load_binary_model(
@@ -305,8 +302,9 @@ fn read_f32_bytes(bytes: &[u8]) -> Result<Vec<f32>, String> {
         ));
     }
     let mut out = Vec::with_capacity(bytes.len() / 4);
-    for chunk in bytes.chunks_exact(4) {
-        out.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+    let (chunks, _) = bytes.as_chunks::<4>();
+    for chunk in chunks {
+        out.push(f32::from_le_bytes(*chunk));
     }
     Ok(out)
 }
@@ -352,14 +350,16 @@ pub fn hash_embed_text(text: &str) -> [f32; EMBED_DIM] {
 
 #[cfg(test)]
 mod tests {
-    use super::{BinaryStaticModel, DEFAULT_MANIFEST_BYTES, DEFAULT_MODEL_ID, load_binary_model};
+    use super::{BinaryStaticModel, DEFAULT_MODEL_ID, load_binary_model};
     use crate::model_install::{
         DEFAULT_EMBEDDINGS_FILENAME, DEFAULT_MANIFEST_FILENAME, DEFAULT_TOKENIZER_FILENAME,
         DEFAULT_WEIGHTS_FILENAME,
     };
 
+    const TEST_MANIFEST_BYTES: &[u8] = include_bytes!("../../assets/model/manifest.json");
+
     #[test]
-    fn loads_embedded_default_model_from_memory() {
+    fn loads_default_model_from_assets() {
         let model = super::load_default_model().expect("load default model");
         assert_eq!(model.vocab_size, 61826);
         assert_eq!(model.dim, 256);
@@ -371,7 +371,7 @@ mod tests {
             include_bytes!("../../assets/model/tokenizer.json"),
             include_bytes!("../../assets/model/embeddings.bin"),
             include_bytes!("../../assets/model/weights.bin"),
-            DEFAULT_MANIFEST_BYTES,
+            TEST_MANIFEST_BYTES,
         )
         .expect("load model");
         assert_eq!(model.vocab_size, 61826);
@@ -380,7 +380,7 @@ mod tests {
     #[test]
     fn rejects_bad_manifest_dimension() {
         let mut manifest: serde_json::Value =
-            serde_json::from_slice(DEFAULT_MANIFEST_BYTES).expect("parse");
+            serde_json::from_slice(TEST_MANIFEST_BYTES).expect("parse");
         manifest["embedding_dim"] = serde_json::json!(128);
         let manifest = serde_json::to_vec(&manifest).expect("serialize");
 
@@ -398,7 +398,7 @@ mod tests {
     #[test]
     fn rejects_bad_manifest_vocab_size() {
         let mut manifest: serde_json::Value =
-            serde_json::from_slice(DEFAULT_MANIFEST_BYTES).expect("parse");
+            serde_json::from_slice(TEST_MANIFEST_BYTES).expect("parse");
         manifest["vocab_size"] = serde_json::json!(1);
         let manifest = serde_json::to_vec(&manifest).expect("serialize");
 
