@@ -7,12 +7,11 @@ It is designed as a practical CLI and MCP server for local repositories and git 
 ## Highlights
 
 - Native Rust binary with no Python runtime required at execution time
-- Semantic search backed by exported `model2vec` assets
+- Semantic search backed by the official [`model2vec-rs`](https://crates.io/crates/model2vec-rs) crate
 - Tree-sitter chunking for structural code boundaries, including Markdown
 - BM25 lexical retrieval for exact identifier matches
 - Hybrid ranking with reranking heuristics for code search
-- CLI and MCP server support
-- Model assets embedded for the default Potion model
+- CLI and MCP server support with self-describing tools for agents
 
 ## ⚖️ Comparison with Original Python Semble & Feature Gap
 
@@ -30,7 +29,7 @@ It is designed as a practical CLI and MCP server for local repositories and git 
 While highly optimized for CLI and MCP agent use-cases, the Rust port currently lacks some features of the parent Python repository:
 
 1. **No Programmatic Python API / FFI Bindings**: The original library is directly importable in Python scripts (`import semble`). `Semble-RS` is built as an executable CLI and MCP server, and does not currently expose PyO3 Python bindings.
-2. **Dynamic Model Customization Boundaries**: In Python, you can easily load any Sentence Transformer or custom static Model2Vec variant on the fly. In `Semble-RS`, swapping models requires conforming to strict binary float layout requirements and fixed dimension sizes (`potion-code-16M` is the hardcoded default).
+2. **Dynamic Model Customization Boundaries**: In Python, you can easily load any Sentence Transformer or custom static Model2Vec variant on the fly. In `Semble-RS`, swapping models is supported for any static Model2Vec variant via `SEMBLE_MODEL_DIR` (a local model directory or a Hugging Face repo id), but dynamic transformer architectures (e.g., Sentence Transformers) are not supported.
 3. **Automated Remote Git Workspace Clones**: Python `semble` handles full automated downloading, cloning, and caching of remote Git URLs in temporary directories natively. In `Semble-RS`, indexing is highly optimized for local directories; full clone-and-cache automation for remote repositories is a work-in-progress.
 4. **Token Savings Logger (`savings.jsonl`)**: Python `semble` logs and appends agent token-efficiency savings (typically ~98% saved) to `~/.semble/savings.jsonl`. This auditing feature is not yet ported to `semble-rs`.
 
@@ -72,27 +71,14 @@ This installs the `semble` executable.
 
 ## Model assets
 
-The Rust encoder uses the exported `potion-code-16M` model assets stored in `assets/model/`.
+The semantic encoder uses the official [`model2vec-rs`](https://crates.io/crates/model2vec-rs) crate with the `minishlab/potion-code-16M` static embedding model by default.
 
-At runtime, `semble-rs` looks for the following files:
+On first use, model weights are downloaded from the Hugging Face Hub and cached locally; subsequent runs are fully offline. If the model cannot be loaded (e.g., no network and no cache), `semble-rs` falls back to a deterministic hashing encoder with reduced semantic quality.
 
-- `tokenizer.json`
-- `embeddings.bin`
-- `weights.bin`
-- `manifest.json`
+To override the default model, point `SEMBLE_MODEL_DIR` at either:
 
-### Bundled model assets
-
-The default Potion model ships embedded in the binary, so normal startup does not download or write model files to disk.
-
-If you want to use a local override directory, point `SEMBLE_MODEL_DIR` at a directory containing:
-
-- `tokenizer.json`
-- `embeddings.bin`
-- `weights.bin`
-- `manifest.json`
-
-The loader reads those files into memory and does not populate a cache directory.
+- a local directory containing a distilled Model2Vec model, or
+- a Hugging Face repo id (e.g., `minishlab/potion-base-8M`)
 
 ## CLI
 
@@ -116,6 +102,8 @@ semble search "save model to disk" ./my-project --mode bm25
 semble find-related src/auth.rs 42 ./my-project
 ```
 
+Both absolute and repository-relative paths are accepted. If no chunk exactly contains the given line, the nearest chunk in the same file is used automatically.
+
 ### Initialize the Claude Code agent file
 
 ```text
@@ -133,8 +121,10 @@ semble savings --verbose
 
 `semble-rs` naturally runs as an MCP (Model Context Protocol) server over `stdio` when launched without subcommands. It exposes tools to AI agents for:
 
-- `search`
-- `find_related`
+- `search` — semantic, BM25, or hybrid retrieval with mode-specific retry hints on empty results
+- `find_related` — related-code lookup from a file path and line, with nearest-chunk fallback and actionable error hints
+
+Tool parameters and usage are described in the tool schemas themselves, so MCP clients can discover correct usage without external documentation.
 
 ### Example with Claude Code
 
@@ -156,13 +146,7 @@ Any MCP client (such as Cursor or Cline) that can spawn a stdio-based server pro
 
 ### Semantic model
 
-The semantic encoder uses the exported `model2vec` assets:
-
-- `tokenizer.json` for tokenization
-- `embeddings.bin` for the token embedding matrix
-- `weights.bin` for token importance weights
-
-At query time, text is tokenized, token vectors are looked up, weighted, averaged, and normalized into a 256-dimensional embedding.
+The semantic encoder uses the official `model2vec-rs` crate to load the static `potion-code-16M` model (from the local cache, the Hugging Face Hub, or `SEMBLE_MODEL_DIR`). A deterministic token-hashing encoder is used as a fallback when model weights are unavailable.
 
 ### Chunking
 
@@ -273,9 +257,9 @@ The Rust binary recognizes a few useful environment variables:
 
 ## Troubleshooting
 
-### The model files are missing
+### The model cannot be loaded
 
-Set `SEMBLE_MODEL_DIR` to a directory that contains the bundled asset files if you want to override the default embedded model.
+`semble-rs` downloads the default Potion model from the Hugging Face Hub on first use and caches it. If you are offline, either prime the cache once while online or set `SEMBLE_MODEL_DIR` to a local model directory. When no model can be loaded, a reduced-quality hashing encoder is used automatically (check stderr with `SEMBLE_TRACE=1`).
 
 ### Search returns no results
 
@@ -283,7 +267,7 @@ Check that:
 
 - the repository path is correct
 - the repository contains supported file types
-- the embedded model assets are intact, or `SEMBLE_MODEL_DIR` points at a valid override directory
+- the Hugging Face model cache is populated (or `SEMBLE_MODEL_DIR` points at a valid local model)
 - `SEMBLE_TRACE=1` is set if you want step-by-step runtime logging
 
 ### The CLI cannot find `semble`

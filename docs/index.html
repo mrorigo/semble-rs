@@ -610,7 +610,7 @@
             </div>
             <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-3">Offline Model Cache</h3>
             <p class="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">
-              Static asset token matrices are downloaded natively from Hugging Face at first run. Perfect for air-gapped secure development.
+              Static token matrices are fetched from Hugging Face on first run and cached locally via the official model2vec-rs crate. Perfect for air-gapped secure development.
             </p>
           </div>
 
@@ -768,10 +768,10 @@
             </summary>
             <div class="px-6 pb-6 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-light space-y-2">
               <p>
-                On the first search run (or when running <code>semble model install</code>), the tool downloads the highly optimized static embedding assets for <code>minishlab/potion-code-16M</code> from the Hugging Face Hub. It saves them to a platform-appropriate local cache directory.
+                On the first search run, Semble-RS loads the highly optimized static embedding assets for <code>minishlab/potion-code-16M</code> through the official Model2Vec Rust crate, downloading them from the Hugging Face Hub into a platform-appropriate local cache.
               </p>
               <p>
-                Once these assets are downloaded, subsequent indexes and searches run completely offline with no network calls, which is perfect for air-gapped systems or secure development environments.
+                Once these assets are cached, subsequent indexes and searches run completely offline with no network calls, which is perfect for air-gapped systems or secure development environments. If no weights are available, a reduced-quality hashing encoder takes over automatically.
               </p>
             </div>
           </details>
@@ -791,7 +791,7 @@
                 Traditional transformer models (such as BERT or Sentence-Transformers) cannot be loaded dynamically because Semble-RS relies on the ultra-lightweight Model2Vec architecture for static, fast CPU projections.
               </p>
               <p>
-                However, you can point Semble-RS to any pre-distilled local static model compatible with fixed 256-dimensional float weights by configuring the <code>SEMBLE_MODEL_DIR</code> environment variable.
+                However, you can point Semble-RS to any pre-distilled static Model2Vec model by configuring the <code>SEMBLE_MODEL_DIR</code> environment variable with a local model directory or a Hugging Face repo id.
               </p>
             </div>
           </details>
