@@ -164,7 +164,8 @@ fn cli_main() {
                     process::exit(1);
                 }
             };
-            if let Some(chunk) = resolve_chunk(&index.chunks, &file_path, line) {
+            if let Some(chunk) = resolve_chunk(&index.chunks, &index.resolve_path(&file_path), line)
+            {
                 let results = index.find_related(&chunk, top_k);
                 if results.is_empty() {
                     println!("No related chunks found for {}:{}.", file_path, line);

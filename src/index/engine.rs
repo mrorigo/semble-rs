@@ -8,7 +8,7 @@ use crate::index::sparse::Bm25Index;
 use crate::search::{search_bm25, search_hybrid, search_semantic};
 use crate::stats::save_search_stats;
 use crate::types::{CallType, Chunk, IndexStats, SearchMode, SearchResult};
-use crate::utils::{resolve_chunk, trace};
+use crate::utils::{normalize_file_path, resolve_chunk, trace};
 
 #[derive(Debug, Clone)]
 pub struct SembleIndex {
@@ -19,6 +19,7 @@ pub struct SembleIndex {
     file_sizes: HashMap<String, usize>,
     file_mapping: HashMap<String, Vec<usize>>,
     language_mapping: HashMap<String, Vec<usize>>,
+    root: Option<PathBuf>,
 }
 
 impl SembleIndex {
@@ -42,7 +43,26 @@ impl SembleIndex {
             file_sizes,
             file_mapping,
             language_mapping,
+            root,
         }
+    }
+
+    /// Resolves a user-provided file path to the root-relative form used by
+    /// this index's chunks.
+    ///
+    /// Accepts absolute paths (canonicalized and stripped of the index root)
+    /// as well as paths relative to the index root. Unresolvable paths are
+    /// returned unchanged for exact-match fallback.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - An absolute or index-root-relative path.
+    ///
+    /// # Returns
+    ///
+    /// The root-relative path string.
+    pub fn resolve_path(&self, file_path: &str) -> String {
+        normalize_file_path(self.root.as_deref(), file_path)
     }
 
     pub fn stats(&self) -> IndexStats {
@@ -209,7 +229,7 @@ impl SembleIndex {
         line: usize,
         top_k: usize,
     ) -> Option<Vec<SearchResult>> {
-        let chunk = resolve_chunk(&self.chunks, file_path, line)?;
+        let chunk = resolve_chunk(&self.chunks, &self.resolve_path(file_path), line)?;
         Some(self.find_related(&chunk, top_k))
     }
 }

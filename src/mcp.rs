@@ -195,7 +195,11 @@ impl FindRelatedTool {
         let source = resolve_source(self.repo.as_deref(), default_source)?;
         trace(format!("MCP find_related resolved source={}", source));
         let index = cache.get_blocking(&source, None)?;
-        let Some(chunk) = resolve_chunk(&index.chunks, &self.file_path, self.line as usize) else {
+        let Some(chunk) = resolve_chunk(
+            &index.chunks,
+            &index.resolve_path(&self.file_path),
+            self.line as usize,
+        ) else {
             return Ok(CallToolResult::text_content(vec![TextContent::from(
                 format!("No chunk found at {}:{}.", self.file_path, self.line),
             )]));
