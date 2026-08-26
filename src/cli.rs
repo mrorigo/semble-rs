@@ -11,10 +11,25 @@ use crate::types::SearchMode;
 use crate::utils::{format_results, is_git_url, resolve_chunk, trace};
 
 const CLAUDE_FILE_PATH: &str = ".claude/agents/semble-search.md";
-const CLI_DISPATCH_ARGS: [&str; 5] = ["search", "find-related", "init", "savings", "-h"];
+const CLI_DISPATCH_ARGS: [&str; 8] = [
+    "search",
+    "find-related",
+    "init",
+    "savings",
+    "help",
+    "-h",
+    "--help",
+    "--version",
+];
 
 #[derive(Parser)]
-#[command(name = "semble", about = "Instant local code search for agents.")]
+#[command(
+    name = "semble",
+    about = "Instant local code search for agents.",
+    long_about = "Instant local code search for agents.\n\n\
+        Run with a subcommand below for CLI usage. Run without any subcommand \
+        (or with --path/--ref) to start the MCP server over stdio."
+)]
 struct Args {
     #[command(subcommand)]
     command: Option<Command>,
@@ -31,30 +46,46 @@ struct McpArgs {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Search the index for code matching a query
     Search {
+        /// Query text (natural language or code snippet)
         query: String,
+        /// Path or git URL to search (defaults to current directory)
         path: Option<String>,
+        /// Number of results to return
         #[arg(short = 'k', long = "top-k", default_value_t = 5)]
         top_k: usize,
+        /// Search strategy to use
         #[arg(short = 'm', long = "mode", value_enum, default_value_t = SearchModeArg::Hybrid)]
         mode: SearchModeArg,
+        /// Include non-code text files in the index
         #[arg(long = "include-text-files")]
         include_text_files: bool,
     },
+    /// Find chunks related to the code at a given file and line
     FindRelated {
+        /// Path of the file to start from
         file_path: String,
+        /// Line number within the file
         line: usize,
+        /// Path or git URL to search (defaults to current directory)
         path: Option<String>,
+        /// Number of results to return
         #[arg(short = 'k', long = "top-k", default_value_t = 5)]
         top_k: usize,
+        /// Include non-code text files in the index
         #[arg(long = "include-text-files")]
         include_text_files: bool,
     },
+    /// Install the semble-search agent file into .claude/agents/
     Init {
+        /// Overwrite an existing agent file
         #[arg(long)]
         force: bool,
     },
+    /// Print a report of token savings from using semble
     Savings {
+        /// Show detailed per-query statistics
         #[arg(long)]
         verbose: bool,
     },

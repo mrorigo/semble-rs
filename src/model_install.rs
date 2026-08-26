@@ -110,7 +110,7 @@ pub fn ensure_default_model_assets() -> Result<PathBuf, String> {
 /// Downloads all required default model files from the remote asset repository into the destination directory.
 pub fn download_model_assets(dest_dir: &Path) -> Result<(), String> {
     let client = reqwest::blocking::Client::builder()
-        .user_agent("semble-rs/0.1.1")
+        .user_agent("semble-rs/0.1.2")
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
 
