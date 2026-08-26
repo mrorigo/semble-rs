@@ -148,11 +148,10 @@ pub fn format_savings_report(path: Option<PathBuf>, verbose: bool) -> String {
         } else {
             bucket.calls.to_string()
         };
-        let pct = if bucket.file_chars > 0 {
-            (bucket.saved_chars * 100 / bucket.file_chars).to_string()
-        } else {
-            "0".to_string()
-        };
+        let pct = (bucket.saved_chars * 100)
+            .checked_div(bucket.file_chars)
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "0".to_string());
         out.push_str(&format!(
             "  {:<12}  {:<6}  [{}]  {} tokens ({}%)\n",
             label, calls_str, "████████████████", saved_str, pct
