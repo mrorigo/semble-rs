@@ -66,6 +66,66 @@ pub fn resolve_chunk(chunks: &[Chunk], file_path: &str, line: usize) -> Option<C
     fallback
 }
 
+/// The outcome of a chunk lookup for a file path and line number.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChunkResolution {
+    /// The resolved chunk, either containing the line exactly or the nearest
+    /// chunk in the same file when no exact match exists.
+    pub chunk: Chunk,
+    /// Whether the line falls strictly inside the resolved chunk's range.
+    pub exact: bool,
+}
+
+/// Resolves a chunk for a file path and line, with a nearest-chunk fallback.
+///
+/// First attempts an exact resolution via [`resolve_chunk`]. If the file
+/// contains indexed chunks but none contain `line`, the chunk whose range is
+/// closest to `line` is returned instead (preferring chunks that start at or
+/// after the line, since callers typically anchor on declarations). Returns
+/// `None` only if the file has no chunks in the index at all.
+pub fn resolve_chunk_detailed(
+    chunks: &[Chunk],
+    file_path: &str,
+    line: usize,
+) -> Option<ChunkResolution> {
+    if let Some(chunk) = resolve_chunk(chunks, file_path, line) {
+        let exact = chunk.start_line <= line && line < chunk.end_line;
+        return Some(ChunkResolution { chunk, exact });
+    }
+    chunks
+        .iter()
+        .filter(|c| c.file_path == file_path)
+        .map(|c| {
+            let distance = if line < c.start_line {
+                c.start_line - line
+            } else {
+                line.saturating_sub(c.end_line)
+            };
+            // Prefer later chunks on ties so anchors near a declaration
+            // resolve to the following definition.
+            (distance, std::cmp::Reverse(c.start_line), c)
+        })
+        .min_by_key(|(distance, start, _)| (*distance, *start))
+        .map(|(_, _, c)| ChunkResolution {
+            chunk: c.clone(),
+            exact: false,
+        })
+}
+
+/// Lists the indexed chunk line ranges for a file path.
+///
+/// Used to produce actionable error output when a lookup cannot be resolved.
+pub fn file_chunk_ranges(chunks: &[Chunk], file_path: &str) -> Vec<(usize, usize)> {
+    let mut ranges: Vec<(usize, usize)> = chunks
+        .iter()
+        .filter(|c| c.file_path == file_path)
+        .map(|c| (c.start_line, c.end_line))
+        .collect();
+    ranges.sort_unstable();
+    ranges.dedup();
+    ranges
+}
+
 pub fn trace(message: impl AsRef<str>) {
     if std::env::var_os("SEMBLE_TRACE").is_some() {
         eprintln!("[semble] {}", message.as_ref());
@@ -93,7 +153,64 @@ pub fn format_results(header: &str, results: &[SearchResult]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_file_path;
+    use super::{file_chunk_ranges, normalize_file_path, resolve_chunk, resolve_chunk_detailed};
+    use crate::types::Chunk;
+
+    fn chunk(file_path: &str, start_line: usize, end_line: usize) -> Chunk {
+        Chunk {
+            content: String::new(),
+            file_path: file_path.to_string(),
+            start_line,
+            end_line,
+            language: None,
+        }
+    }
+
+    #[test]
+    fn detailed_resolution_is_exact_inside_chunk() {
+        let chunks = vec![chunk("a.rs", 10, 20)];
+        let r = resolve_chunk_detailed(&chunks, "a.rs", 15).expect("resolved");
+        assert!(r.exact);
+        assert_eq!(r.chunk.start_line, 10);
+        // Plain resolve_chunk agrees.
+        assert_eq!(resolve_chunk(&chunks, "a.rs", 15), Some(r.chunk));
+    }
+
+    #[test]
+    fn falls_back_to_nearest_chunk_in_gap() {
+        // Equidistant from both chunks; ties prefer the later chunk so
+        // declaration anchors resolve forward.
+        let chunks = vec![chunk("a.rs", 1, 10), chunk("a.rs", 40, 50)];
+        let r = resolve_chunk_detailed(&chunks, "a.rs", 25).expect("resolved");
+        assert!(!r.exact);
+        assert_eq!(r.chunk.start_line, 40);
+    }
+
+    #[test]
+    fn falls_back_to_nearest_chunk_past_end() {
+        let chunks = vec![chunk("a.rs", 1, 10), chunk("a.rs", 40, 50)];
+        let r = resolve_chunk_detailed(&chunks, "a.rs", 60).expect("resolved");
+        assert!(!r.exact);
+        assert_eq!(r.chunk.start_line, 40);
+    }
+
+    #[test]
+    fn returns_none_when_file_has_no_chunks() {
+        let chunks = vec![chunk("a.rs", 1, 10)];
+        assert_eq!(resolve_chunk_detailed(&chunks, "missing.rs", 5), None);
+    }
+
+    #[test]
+    fn lists_file_chunk_ranges_sorted() {
+        let chunks = vec![
+            chunk("a.rs", 40, 50),
+            chunk("b.rs", 1, 2),
+            chunk("a.rs", 1, 10),
+            chunk("a.rs", 1, 10),
+        ];
+        assert_eq!(file_chunk_ranges(&chunks, "a.rs"), vec![(1, 10), (40, 50)]);
+        assert!(file_chunk_ranges(&chunks, "nope.rs").is_empty());
+    }
 
     #[test]
     fn resolves_absolute_path_inside_root() {
