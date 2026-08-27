@@ -1,3 +1,5 @@
+// Rust guideline compliant 2026-08-27
+
 use crate::types::Chunk;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,6 +21,7 @@ pub fn is_supported_language(language: &str) -> bool {
             | "cpp"
             | "c"
             | "json"
+            | "yaml"
             | "markdown"
             | "text"
     )
