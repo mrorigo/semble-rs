@@ -160,7 +160,10 @@ Code is chunked with Tree-sitter for supported languages:
 - Go
 - C
 - C++
+- Ruby
 - Markdown
+- JSON
+- YAML
 
 Unsupported languages fall back to line-based chunking.
 

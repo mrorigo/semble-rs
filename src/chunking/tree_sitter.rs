@@ -1,3 +1,5 @@
+// Rust guideline compliant 2026-08-27
+
 use tree_sitter::{Language, Node, Parser};
 
 use crate::chunking::core::{ChunkBoundary, chunk_lines};
@@ -34,7 +36,10 @@ fn parser_for(language: &str) -> Option<Parser> {
         "go" => tree_sitter_go::LANGUAGE.into(),
         "c" => tree_sitter_c::LANGUAGE.into(),
         "cpp" => tree_sitter_cpp::LANGUAGE.into(),
+        "ruby" => tree_sitter_ruby::LANGUAGE.into(),
         "markdown" => tree_sitter_md::LANGUAGE.into(),
+        "json" => tree_sitter_json::LANGUAGE.into(),
+        "yaml" => tree_sitter_yaml::LANGUAGE.into(),
         _ => return None,
     };
     if parser.set_language(&lang).is_err() {
@@ -153,6 +158,19 @@ fn is_structural(kind: &str) -> bool {
             | "list"
             | "list_item"
             | "block_quote"
+            // Ruby
+            | "singleton_class"
+            | "singleton_method"
+            | "method"
+            // JSON
+            | "object"
+            | "array"
+            // YAML
+            | "stream"
+            | "block_mapping"
+            | "block_mapping_pair"
+            | "block_sequence"
+            | "block_node"
     )
 }
 
@@ -207,6 +225,61 @@ fn example() {}
 ```
 "#;
         let boundaries = chunk(source, "markdown", 30);
+        assert!(!boundaries.is_empty());
+    }
+
+    #[test]
+    fn chunks_ruby_source_structurally() {
+        let source = r#"
+class Greeter
+  def initialize(name)
+    @name = name
+  end
+
+  def hello
+    "Hello, #{@name}!"
+  end
+end
+
+module Helpers
+  def greet(who)
+    puts hello
+  end
+end
+"#;
+        let boundaries = chunk(source, "ruby", 30);
+        assert!(!boundaries.is_empty());
+        assert!(boundaries.iter().any(|b| b.end - b.start >= 10));
+    }
+
+    #[test]
+    fn chunks_json_source_structurally() {
+        let source = r#"{
+  "name": "semble",
+  "nested": {
+    "enabled": true,
+    "tags": ["rust", "mcp", "semantic"]
+  },
+  "count": 42
+}
+"#;
+        let boundaries = chunk(source, "json", 30);
+        assert!(!boundaries.is_empty());
+    }
+
+    #[test]
+    fn chunks_yaml_source_structurally() {
+        let source = r#"
+name: semble
+server:
+  transport: stdio
+  port: 8080
+features:
+  - semantic
+  - lexical
+  - hybrid
+"#;
+        let boundaries = chunk(source, "yaml", 30);
         assert!(!boundaries.is_empty());
     }
 }
