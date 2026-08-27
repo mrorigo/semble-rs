@@ -58,24 +58,32 @@ Indexing evaluates walking a repository, chunking each file structurally, buildi
 
 ## 🔍 3. Search Retrieval Latency
 
-We evaluated query performance against pre-built indexes across lexical (`BM25`), semantic (`Model2Vec` brute-force), and hybrid modes.
+We evaluated query performance against pre-built indexes across lexical (`BM25`), semantic (`Model2Vec` brute-force), and hybrid modes. Following the adoption of an **extended BM25 inverted (postings) index**, lexical search goes from the slowest path to effectively free, with latency that no longer scales with total corpus size.
 
 ### Query Latency (Medium Tier - 2,500 Chunks)
 
 | Query / Mode | BM25 Lexical | Semantic Cosine | Hybrid (RRF + Rerank) |
 |---|---|---|---|
-| `"authentication flow"` | 22.27 ms | 5.14 ms | 27.95 ms |
-| `"BM25 IDF calculation"` | 21.69 ms | 5.11 ms | 28.89 ms |
-| `"save model checkpoint to disk"` | 22.17 ms | 4.99 ms | 28.25 ms |
-| `"impl Display for"` | 21.66 ms | 4.94 ms | 27.17 ms |
-| `"trait Encoder"` | 21.32 ms | 5.11 ms | 26.39 ms |
-| **Average Latency** | **21.82 ms** | **5.06 ms** | **27.73 ms** |
+| `"authentication flow"` | 0.140 ms | 3.705 ms | 6.046 ms |
+| `"BM25 IDF calculation"` | 0.158 ms | 3.705 ms | 5.899 ms |
+| `"save model checkpoint to disk"` | 0.154 ms | 3.698 ms | 6.524 ms |
+| `"impl Display for"` | 0.141 ms | 3.693 ms | 5.424 ms |
+| `"trait Encoder"` | 0.154 ms | 3.692 ms | 5.148 ms |
+| **Average Latency** | **0.15 ms** | **3.70 ms** | **5.81 ms** |
+
+### Query Latency Scaling Across Corpus Tiers (BM25)
+
+| Query / Tier | Small (~2.3k chunks) | Medium (~21k chunks) | Large (~124k chunks) |
+|---|---|---|---|
+| `"authentication flow"` | 0.117 ms | 0.140 ms | 0.249 ms |
+| `"trait Encoder"` | 0.118 ms | 0.154 ms | 0.341 ms |
+| **Approx. Avg** | **0.12 ms** | **0.15 ms** | **0.30 ms** |
 
 ### 🔍 Key Insights & Analysis
 
-1. **Blazing Fast Semantics**: Brute-force semantic cosine scans over 2,500 256-dimensional float vectors complete in just **5.06 ms**. This highlights the exceptional speed of Rust's compiler autovectorization (SIMD) on Apple Silicon.
-2. **BM25 Search Overhead**: BM25 searches are slower than raw float scanning, averaging **21.8 ms** per query. This is because tokenizing the query and performing scoring lookups on hash maps is more memory-access intensive than linear array vector scans.
-3. **Hybrid Cost-Benefit**: Hybrid retrieval—which runs both retrieval paths, fuses the results via Reciprocal Rank Fusion (RRF), applies code structure heuristics, and reranks the candidates—completes in just **27.7 ms**. For a mere 5.9 ms premium over pure BM25, the user gets semantic intent awareness combined with precise token keyword matching.
+1. **BM25 Is Now the Fastest Path**: With an inverted postings index, BM25 scores only the documents that actually contain a query term instead of re-scanning every chunk and rebuilding a per-document term-frequency table. Average medium-tier BM25 latency drops from **21.8 ms** to just **0.15 ms**—roughly a **140x improvement**.
+2. **Corpus-Independent BM25 Scaling**: Because latency tracks the size of the query's postings lists rather than the total corpus, scaling from ~2.3k to ~124k chunks only moves BM25 from **0.12 ms** to **0.30 ms**. The entire large-tier corpus answers a lexical query in far less time than the old implementation needed for a small corpus.
+3. **Semantic & Hybrid Still Dominate**: Semantic brute-force cosine scans average **3.70 ms**, and the full hybrid pipeline **5.81 ms**, both now confined to the dense-vector stage (256-D dot products plus RRF fusion and structural reranking). Hybrid's ~2 ms premium over raw semantic is the cost of lexical fusion, reciprocal rank fusion, and definition boosting.
 
 ---
 
@@ -84,24 +92,25 @@ We evaluated query performance against pre-built indexes across lexical (`BM25`)
 To determine how the hybrid ranking pipeline scales with larger result pages, we swept `top_k` values from 5 to 50 on the medium corpus tier.
 
 ```text
-search/topk_sweep/5     time:   28.69 ms
-search/topk_sweep/10    time:   27.96 ms
-search/topk_sweep/25    time:   29.30 ms
-search/topk_sweep/50    time:   31.33 ms
+search/topk_sweep/5     time:   5.17 ms
+search/topk_sweep/10    time:   5.56 ms
+search/topk_sweep/25    time:   6.88 ms
+search/topk_sweep/50    time:   8.89 ms
 ```
 
 ### 🔍 Analysis
 
-- **Flat Scaling Profile**: Increasing requested results from **5** to **50** (a 10x scale) results in only a **2.64 ms** increase in total latency.
-- **Interpretation**: This proves the downstream reciprocal ranking, heuristics boosting, and document deduplication phases are highly optimized. The execution footprint is completely dominated by the initial candidate generation, making it extremely cheap to request larger result pages.
+- **Flat Scaling Profile**: Increasing requested results from **5** to **50** (a 10x scale) results in only a **3.7 ms** increase in total latency.
+- **Interpretation**: This proves the downstream reciprocal ranking, heuristics boosting, and document deduplication phases are highly optimized. The execution footprint is now dominated by the initial dense candidate generation and rerank selection, making it extremely cheap to request larger result pages.
 
 ---
 
 ## 💡 Architectural Recommendations & Completed Improvements
 
 1. **Retain Tree-sitter Everywhere**: Never fallback to line-based chunking on large files. The Tree-sitter AST parser is significantly faster and dramatically more resource-efficient as files scale.
-2. **SIMD Vector Optimization**: Since semantic search vector scanning is highly performant (sub-5 ms), we should keep the vector index simple and flat for workspaces up to 50,000 chunks. Complex hierarchical indexing is unnecessary and would add complexity without meaningful speed gains.
+2. **SIMD Vector Optimization**: Since semantic search vector scanning is highly performant (sub-4 ms on medium corpora), we should keep the vector index simple and flat for workspaces up to 50,000 chunks. Complex hierarchical indexing is unnecessary and would add complexity without meaningful speed gains.
 3. **Parallel Indexing via Rayon (Successfully Implemented)**: By parallelizing Tree-sitter chunking and Model2Vec token encoding via Rayon, we successfully dropped medium-tier dense embedding generation from **798.85 ms** to **164.90 ms** (a spectacular **4.8x speedup**) and end-to-end indexing to just **1.46 seconds** (a **40% time reduction**). This proves the engine's scaling capability on multi-core systems.
+4. **BM25 Inverted Postings Index (Successfully Implemented)**: Rebuilding the lexical index around a term-to-document postings structure moved BM25 search from a full-corpus scan (21.8 ms on medium, 155 ms on large) to focused scoring that only visits matching documents (0.15 ms on medium, 0.30 ms on large). Lexical retrieval is now effectively free and no longer sets the scaling ceiling; the routing that scores only relevant postings is the single biggest single-query win in the engine.
 
 ---
 

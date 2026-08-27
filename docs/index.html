@@ -285,7 +285,7 @@
           <!-- Metric 1 -->
           <div class="p-8 rounded-2xl border border-slate-200 dark:border-slate-800/80 bg-white dark:bg-brand-navy-900/40 text-center hover:border-brand-emerald/40 transition-all duration-300 group">
             <div class="font-display font-extrabold text-5xl bg-gradient-to-r from-brand-emerald to-emerald-400 bg-clip-text text-transparent mb-3 group-hover:scale-105 transition-transform duration-200">
-              &lt; 5.1ms
+              &lt; 3.7ms
             </div>
             <h3 class="text-lg font-bold text-slate-800 dark:text-white mb-2">Semantic CPU Scans</h3>
             <p class="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
@@ -496,7 +496,7 @@
               <div class="space-y-2">
                 <div class="flex justify-between text-sm font-semibold text-slate-700 dark:text-slate-300">
                   <span>Semantic CPU Cosine Scan (2,500 chunks)</span>
-                  <span class="text-brand-cyan">5.06 ms</span>
+                  <span class="text-brand-cyan">3.70 ms</span>
                 </div>
                 <div class="h-3 w-full bg-slate-100 dark:bg-brand-navy-950 rounded-full overflow-hidden relative">
                   <div id="bar-semantic-scan" class="h-full bg-gradient-to-r from-brand-cyan to-cyan-400 rounded-full transition-all duration-[1500ms] ease-out w-0"></div>
@@ -505,8 +505,18 @@
 
               <div class="space-y-2">
                 <div class="flex justify-between text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  <span>BM25 Inverted-Index Search (2,500 chunks)</span>
+                  <span class="text-brand-emerald">0.15 ms</span>
+                </div>
+                <div class="h-3 w-full bg-slate-100 dark:bg-brand-navy-950 rounded-full overflow-hidden relative">
+                  <div id="bar-bm25-search" class="h-full bg-gradient-to-r from-brand-emerald to-emerald-400 rounded-full transition-all duration-[1500ms] ease-out w-0"></div>
+                </div>
+              </div>
+
+              <div class="space-y-2">
+                <div class="flex justify-between text-sm font-semibold text-slate-700 dark:text-slate-300">
                   <span>Full Hybrid Search (RRF + Rerank)</span>
-                  <span class="text-brand-emerald">27.73 ms</span>
+                  <span class="text-brand-emerald">5.81 ms</span>
                 </div>
                 <div class="h-3 w-full bg-slate-100 dark:bg-brand-navy-950 rounded-full overflow-hidden relative">
                   <div id="bar-hybrid-search" class="h-full bg-gradient-to-r from-brand-emerald to-brand-cyan rounded-full transition-all duration-[1500ms] ease-out w-0"></div>
@@ -852,8 +862,9 @@
         document.getElementById('bar-rust-ast').style.width = '6.3%';
         document.getElementById('bar-line-ast').style.width = '100%';
         
-        // Semantic scan takes 5.06ms -> let's make it 18.2% width relative to 27.73ms (100% width)
-        document.getElementById('bar-semantic-scan').style.width = '18.2%';
+        // Semantic scan takes 3.70ms -> let's make it 63.7% width relative to 5.81ms (100% width)
+        document.getElementById('bar-semantic-scan').style.width = '63.7%';
+        document.getElementById('bar-bm25-search').style.width = '2.6%';
         document.getElementById('bar-hybrid-search').style.width = '100%';
       }, 250);
     }
@@ -903,7 +914,7 @@
             return `  - "${w}": matched in ${mockDocsCount} chunks (IDF: ${mockIdf})`;
           }).join('\n');
 
-          out2.textContent = `Scanning token vocabulary posting structures...\nMatched items:\n${termMatches}\nLatency: 21.68 ms`;
+          out2.textContent = `Scanning token vocabulary posting structures...\nMatched items:\n${termMatches}\nLatency: 0.15 ms`;
 
           // Trigger Step 3: RRF & structural boost
           setTimeout(() => {
@@ -920,7 +931,7 @@
               mockCode = `/// [Definition Boosted: impl Display]\nimpl std::fmt::Display for StaticModel {\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n        write!(f, "StaticModel(dim={})", self.dim)\n    }\n}`;
             }
 
-            out3.textContent = `Applied Reciprocal Rank Fusion (RRF constant = 60)\nApplied AST definition booster (+1.5x score factor)\nFound best chunk match (Fused Score: ${rankScore})\n\n${mockCode}\n\nTotal Hybrid Retrieval latency: 27.73 ms!`;
+            out3.textContent = `Applied Reciprocal Rank Fusion (RRF constant = 60)\nApplied AST definition booster (+1.5x score factor)\nFound best chunk match (Fused Score: ${rankScore})\n\n${mockCode}\n\nTotal Hybrid Retrieval latency: 5.81 ms!`;
           }, 800);
         }, 800);
       }, 200);

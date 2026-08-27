@@ -66,9 +66,12 @@ pub fn search_bm25(
     let mask = selector_to_mask(selector, chunks.len());
     let scores = bm25_index.get_scores(&tokens, mask.as_deref());
     let mut idxs: Vec<usize> = (0..scores.len()).collect();
-    idxs.sort_by(|a, b| scores[*b].partial_cmp(&scores[*a]).unwrap());
+    let effective_k = top_k.min(idxs.len());
+    if let Some(pivot) = effective_k.checked_sub(1) {
+        idxs.select_nth_unstable_by(pivot, |&a, &b| scores[b].partial_cmp(&scores[a]).unwrap());
+    }
     idxs.into_iter()
-        .take(top_k)
+        .take(effective_k)
         .filter(|&i| scores[i] > 0.0)
         .map(|i| SearchResult {
             chunk: chunks[i].clone(),
