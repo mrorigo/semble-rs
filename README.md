@@ -210,11 +210,12 @@ cargo build --release
 
 Under a realistic workspace workload (~300 files, ~2,500 chunks):
 
-- 🚀 **Sub-5.1ms Semantic Search**: Raw semantic vector retrieval takes just **~5.0 ms** per query via CPU autovectorized SIMD.
-- ⚡ **Highly Optimized Hybrid Search**: Fusing lexical BM25 and semantic vectors with code-aware reranking completes in just **~27.7 ms** per query.
+- 🚀 **Sub-Millisecond BM25 Search**: Lexical retrieval via an inverted postings index completes in just **~0.15 ms** per query on a medium corpus — and scales to only **~0.3 ms** on a large (~124k chunk) corpus.
+- ⚡ **Sub-4ms Semantic Search**: Raw semantic vector retrieval takes just **~3.7 ms** per query via CPU autovectorized SIMD.
+- 🔀 **Rapid Hybrid Search**: Fusing lexical BM25 and semantic vectors with code-aware reranking completes in just **~5.8 ms** per query.
 - 📂 **Parallelized Rapid Indexing**: End-to-end repository indexing (file walking, parallel Tree-sitter chunking, parallel semantic encoding, and BM25 building) takes only **~1.46 seconds** via Rayon.
 - 🌳 **AST Chunker Efficiency**: Tree-sitter Rust chunks a 2,000-line source file structurally in **4.6 ms** (outperforming standard line-splitting by **15.8x**).
-- 📈 **Flat Scaling Profile**: Upgrading `top_k` from `5` to `50` adds only **~2.6 ms** of latency, proving downstream ranking phases are extremely cheap.
+- 📈 **Flat Scaling Profile**: Upgrading `top_k` from `5` to `50` adds only **~3.7 ms** of latency, proving downstream ranking phases are extremely cheap.
 
 For complete benchmarks and raw timing charts, refer to the full **[PERFORMANCE_REPORT.md](docs/PERFORMANCE_REPORT.md)**.
 
