@@ -13,6 +13,23 @@ It is designed as a practical CLI and MCP server for local repositories and git 
 - Hybrid ranking with reranking heuristics for code search
 - CLI and MCP server support with self-describing tools for agents
 
+## Supported Languages
+
+This repository chunks code with **Tree-sitter** for structural AST boundaries in the following languages. Unsupported file types automatically fall back to an optimized line-based chunker.
+
+![Rust](https://img.shields.io/badge/-Rust-000000?style=flat-square&logo=rust&logoColor=white)
+![Python](https://img.shields.io/badge/-Python-3776AB?style=flat-square&logo=python&logoColor=white)
+![JavaScript](https://img.shields.io/badge/-JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black)
+![TypeScript](https://img.shields.io/badge/-TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Java](https://img.shields.io/badge/-Java-ED8B00?style=flat-square&logo=openjdk&logoColor=white)
+![Go](https://img.shields.io/badge/-Go-00ADD8?style=flat-square&logo=go&logoColor=white)
+![C](https://img.shields.io/badge/-C-A8B9CC?style=flat-square&logo=c&logoColor=black)
+![C++](https://img.shields.io/badge/-C++-00599C?style=flat-square&logo=cplusplus&logoColor=white)
+![Ruby](https://img.shields.io/badge/-Ruby-CC342D?style=flat-square&logo=ruby&logoColor=white)
+![Markdown](https://img.shields.io/badge/-Markdown-000000?style=flat-square&logo=markdown&logoColor=white)
+![JSON](https://img.shields.io/badge/-JSON-000000?style=flat-square&logo=json&logoColor=white)
+![YAML](https://img.shields.io/badge/-YAML-CB171E?style=flat-square&logo=yaml&logoColor=white)
+
 ## ⚖️ Comparison with Original Python Semble & Feature Gap
 
 `Semble-RS` is a native Rust port of the Python **[semble](https://github.com/MinishLab/semble)** code-search library. We want to set honest and clear expectations for users transitioning from or choosing between the two implementations.
