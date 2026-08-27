@@ -1,4 +1,5 @@
-use crate::types::{Chunk, SearchResult};
+use crate::index::engine::SymbolReport;
+use crate::types::{Chunk, SearchResult, SymbolKind};
 
 const GIT_URL_SCHEMES: [&str; 6] = [
     "https://",
@@ -210,13 +211,76 @@ pub fn format_results(header: &str, results: &[SearchResult]) -> String {
     out
 }
 
+/// Renders one or more symbol reports into an agent-facing text block.
+///
+/// Each report shows the symbol name and kind, its definition location(s), and
+/// the chunks that reference it, with language-fenced snippets.
+pub fn format_symbol_reports(reports: &[SymbolReport]) -> String {
+    let mut out = String::new();
+    for (i, report) in reports.iter().enumerate() {
+        out.push_str(&format!(
+            "## Symbol {}: {} ({})\n",
+            i + 1,
+            report.name,
+            match report.definitions.first().map(|d| d.symbol.kind) {
+                Some(kind) => kind_name(kind),
+                None => "symbol",
+            }
+        ));
+        if !report.definitions.is_empty() {
+            out.push_str("\nDefined at:\n");
+            for (j, d) in report.definitions.iter().enumerate() {
+                out.push_str(&format_code_block(j, d.chunk.location(), &d.chunk));
+            }
+        }
+        if !report.usages.is_empty() {
+            out.push_str("Referenced at:\n");
+            for (j, u) in report.usages.iter().enumerate() {
+                out.push_str(&format_code_block(j, u.chunk.location(), &u.chunk));
+            }
+        }
+        out.push('\n');
+    }
+    out
+}
+
+fn kind_name(kind: SymbolKind) -> &'static str {
+    match kind {
+        SymbolKind::Function => "function",
+        SymbolKind::Method => "method",
+        SymbolKind::Class => "class",
+        SymbolKind::Struct => "struct",
+        SymbolKind::Enum => "enum",
+        SymbolKind::Trait => "trait",
+        SymbolKind::Interface => "interface",
+        SymbolKind::Type => "type",
+        SymbolKind::Constant => "constant",
+        SymbolKind::Module => "module",
+        SymbolKind::Unknown => "symbol",
+    }
+}
+
+fn format_code_block(ordinal: usize, header: String, chunk: &Chunk) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("## {}. {}\n", ordinal + 1, header));
+    match fence_language(&chunk.file_path) {
+        Some(lang) => out.push_str(&format!("```{}\n", lang)),
+        None => out.push_str("```\n"),
+    }
+    out.push_str(truncate_content(chunk.content.trim()).as_str());
+    out.push_str("\n```\n\n");
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_CONTENT_CHARS, fence_language, file_chunk_ranges, format_results, normalize_file_path,
-        resolve_chunk, resolve_chunk_detailed, truncate_content,
+        MAX_CONTENT_CHARS, fence_language, file_chunk_ranges, format_results,
+        format_symbol_reports, normalize_file_path, resolve_chunk, resolve_chunk_detailed,
+        truncate_content,
     };
-    use crate::types::{Chunk, SearchMode, SearchResult};
+    use crate::index::engine::{SymbolRef, SymbolReport};
+    use crate::types::{Chunk, SearchMode, SearchResult, Symbol, SymbolKind};
 
     fn chunk(file_path: &str, start_line: usize, end_line: usize) -> Chunk {
         Chunk {
@@ -225,6 +289,7 @@ mod tests {
             start_line,
             end_line,
             language: None,
+            symbols: Vec::new(),
         }
     }
 
@@ -236,6 +301,39 @@ mod tests {
         assert_eq!(r.chunk.start_line, 10);
         // Plain resolve_chunk agrees.
         assert_eq!(resolve_chunk(&chunks, "a.rs", 15), Some(r.chunk));
+    }
+
+    #[test]
+    fn format_symbol_reports_lists_definitions_and_usages() {
+        let mut def = chunk("a.rs", 1, 3);
+        def.content = "pub fn foo() {}".to_string();
+        let mut use_ = chunk("b.rs", 5, 6);
+        use_.content = "foo();".to_string();
+        let report = SymbolReport {
+            name: "foo".to_string(),
+            definitions: vec![SymbolRef {
+                chunk: def,
+                symbol: Symbol {
+                    name: "foo".to_string(),
+                    kind: SymbolKind::Function,
+                    line: 1,
+                },
+            }],
+            usages: vec![SymbolRef {
+                chunk: use_,
+                symbol: Symbol {
+                    name: "foo".to_string(),
+                    kind: SymbolKind::Function,
+                    line: 5,
+                },
+            }],
+        };
+        let out = format_symbol_reports(&[report]);
+        assert!(out.contains("## Symbol 1: foo (function)"), "{out}");
+        assert!(out.contains("Defined at:"), "{out}");
+        assert!(out.contains("a.rs:1-3"), "{out}");
+        assert!(out.contains("Referenced at:"), "{out}");
+        assert!(out.contains("b.rs:5-6"), "{out}");
     }
 
     #[test]
@@ -302,6 +400,7 @@ mod tests {
                 start_line: 1,
                 end_line: 1,
                 language: None,
+                symbols: Vec::new(),
             },
             score: 0.5,
             source: SearchMode::Hybrid,

@@ -24,12 +24,43 @@ pub struct Chunk {
     pub start_line: usize,
     pub end_line: usize,
     pub language: Option<String>,
+    /// The declared symbol names found in this chunk (definitions), from the
+    /// tree-sitter AST when the language was structurally chunked.
+    #[serde(default)]
+    pub symbols: Vec<Symbol>,
 }
 
 impl Chunk {
     pub fn location(&self) -> String {
         format!("{}:{}-{}", self.file_path, self.start_line, self.end_line)
     }
+}
+
+/// The kind of a declared symbol, used to hint agents about its role.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SymbolKind {
+    Function,
+    Method,
+    Class,
+    Struct,
+    Enum,
+    Trait,
+    Interface,
+    Type,
+    Constant,
+    Module,
+    Unknown,
+}
+
+/// A symbol declared by a chunk and its source location.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Symbol {
+    /// The lowered identifier, e.g. "calculate_total".
+    pub name: String,
+    pub kind: SymbolKind,
+    /// 1-based declaration line within the file.
+    pub line: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
