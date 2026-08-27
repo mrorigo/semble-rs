@@ -5,10 +5,26 @@ use std::process::Command;
 use crate::index::create::create_index_from_path;
 use crate::index::dense::{SelectableBasicBackend, StaticModel, load_model};
 use crate::index::sparse::Bm25Index;
+use crate::index::symbols::{SymbolIndex, SymbolOccurrence};
 use crate::search::{search_bm25, search_hybrid, search_semantic};
 use crate::stats::save_search_stats;
-use crate::types::{CallType, Chunk, IndexStats, SearchMode, SearchResult};
-use crate::utils::{normalize_file_path, resolve_chunk, trace};
+use crate::types::{CallType, Chunk, IndexStats, SearchMode, SearchResult, Symbol, SymbolKind};
+use crate::utils::{normalize_file_path, resolve_chunk, resolve_chunk_detailed, trace};
+
+/// A definition or usage reference to a symbol, resolved to its chunk.
+#[derive(Debug, Clone)]
+pub struct SymbolRef {
+    pub chunk: Chunk,
+    pub symbol: Symbol,
+}
+
+/// The story of one symbol: where it is defined and where it is referenced.
+#[derive(Debug, Clone)]
+pub struct SymbolReport {
+    pub name: String,
+    pub definitions: Vec<SymbolRef>,
+    pub usages: Vec<SymbolRef>,
+}
 
 #[derive(Debug, Clone)]
 pub struct SembleIndex {
@@ -19,6 +35,7 @@ pub struct SembleIndex {
     file_sizes: HashMap<String, usize>,
     file_mapping: HashMap<String, Vec<usize>>,
     language_mapping: HashMap<String, Vec<usize>>,
+    symbol_index: SymbolIndex,
     root: Option<PathBuf>,
 }
 
@@ -35,6 +52,7 @@ impl SembleIndex {
             .map(|r| compute_file_sizes(&chunks, r))
             .unwrap_or_default();
         let (file_mapping, language_mapping) = populate_mapping(&chunks);
+        let symbol_index = SymbolIndex::build(&chunks);
         Self {
             model,
             chunks,
@@ -43,6 +61,7 @@ impl SembleIndex {
             file_sizes,
             file_mapping,
             language_mapping,
+            symbol_index,
             root,
         }
     }
@@ -231,6 +250,70 @@ impl SembleIndex {
     ) -> Option<Vec<SearchResult>> {
         let chunk = resolve_chunk(&self.chunks, &self.resolve_path(file_path), line)?;
         Some(self.find_related(&chunk, top_k))
+    }
+
+    /// Returns the definition and referencing chunks for a symbol name.
+    ///
+    /// The name is normalized to a lowered identifier. Returns `None` when the
+    /// symbol has neither a definition nor any usage in the index.
+    pub fn symbol(&self, name: &str) -> Option<SymbolReport> {
+        let lowered = name.to_lowercase();
+        if !self.symbol_index.contains(&lowered) {
+            return None;
+        }
+        let occs = self.symbol_index.definitions(&lowered);
+        let kind = occs.first().map(|o| o.kind).unwrap_or(SymbolKind::Unknown);
+        let definitions = occs
+            .iter()
+            .map(|occ| self.ref_for(occ, &lowered))
+            .collect::<Vec<_>>();
+        let usages = self
+            .symbol_index
+            .referencing_chunks(&lowered)
+            .iter()
+            .map(|&idx| SymbolRef {
+                chunk: self.chunks[idx].clone(),
+                symbol: Symbol {
+                    name: lowered.clone(),
+                    kind,
+                    line: self.chunks[idx].start_line,
+                },
+            })
+            .collect::<Vec<_>>();
+        Some(SymbolReport {
+            name: lowered,
+            definitions,
+            usages,
+        })
+    }
+
+    /// Returns reports for every symbol declared in the chunk at `file:line`.
+    ///
+    /// Uses the nearest chunk when the line does not fall exactly inside one.
+    pub fn symbols_at(&self, file_path: &str, line: usize) -> Vec<SymbolReport> {
+        let rooted = self.resolve_path(file_path);
+        let Some(resolution) = resolve_chunk_detailed(&self.chunks, &rooted, line) else {
+            return vec![];
+        };
+        let chunk = resolution.chunk;
+        let mut reports = Vec::new();
+        for symbol in &chunk.symbols {
+            if let Some(report) = self.symbol(&symbol.name) {
+                reports.push(report);
+            }
+        }
+        reports
+    }
+
+    fn ref_for(&self, occ: &SymbolOccurrence, name: &str) -> SymbolRef {
+        SymbolRef {
+            chunk: self.chunks[occ.chunk_idx].clone(),
+            symbol: Symbol {
+                name: name.to_string(),
+                kind: occ.kind,
+                line: occ.line,
+            },
+        }
     }
 }
 

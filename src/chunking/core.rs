@@ -1,6 +1,6 @@
 // Rust guideline compliant 2026-08-27
 
-use crate::types::Chunk;
+use crate::types::{Chunk, Symbol};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkBoundary {
@@ -70,10 +70,12 @@ pub fn boundaries_to_chunks(
     file_path: &str,
     language: Option<String>,
     boundaries: Vec<ChunkBoundary>,
+    symbols_by_chunk: &[Vec<Symbol>],
 ) -> Vec<Chunk> {
     boundaries
         .into_iter()
-        .filter_map(|boundary| {
+        .enumerate()
+        .filter_map(|(i, boundary)| {
             let start = previous_char_boundary(source, boundary.start.min(source.len()));
             let end = next_char_boundary(source, boundary.end.min(source.len()));
             if start >= end {
@@ -90,6 +92,7 @@ pub fn boundaries_to_chunks(
                 start_line,
                 end_line,
                 language: language.clone(),
+                symbols: symbols_by_chunk.get(i).cloned().unwrap_or_default(),
             })
         })
         .collect()
@@ -121,6 +124,7 @@ mod tests {
             "sample.rs",
             Some("rust".to_string()),
             vec![ChunkBoundary { start: 2, end: 4 }],
+            &[],
         );
 
         assert_eq!(chunks.len(), 1);
@@ -139,6 +143,7 @@ mod tests {
             "sample.rs",
             None,
             vec![ChunkBoundary { start: 0, end: 8 }],
+            &[],
         );
 
         assert_eq!(chunks[0].content, "one\ntwo\n");
@@ -157,6 +162,7 @@ mod tests {
                 start: 4,
                 end: source.len(),
             }],
+            &[],
         );
 
         assert_eq!(chunks[0].content, "two\nthree");
@@ -172,6 +178,7 @@ mod tests {
             "sample.rs",
             None,
             vec![ChunkBoundary { start: 3, end: 3 }],
+            &[],
         );
 
         assert!(chunks.is_empty());

@@ -8,12 +8,15 @@ use crate::index::SembleIndex;
 use crate::mcp::serve;
 use crate::stats::format_savings_report;
 use crate::types::SearchMode;
-use crate::utils::{format_results, is_git_url, resolve_chunk_detailed, trace};
+use crate::utils::{
+    format_results, format_symbol_reports, is_git_url, resolve_chunk_detailed, trace,
+};
 
 const CLAUDE_FILE_PATH: &str = ".claude/agents/semble-search.md";
-const CLI_DISPATCH_ARGS: [&str; 8] = [
+const CLI_DISPATCH_ARGS: [&str; 9] = [
     "search",
     "find-related",
+    "symbol",
     "init",
     "savings",
     "help",
@@ -73,6 +76,22 @@ enum Command {
         /// Number of results to return
         #[arg(short = 'k', long = "top-k", default_value_t = 5)]
         top_k: usize,
+        /// Include non-code text files in the index
+        #[arg(long = "include-text-files")]
+        include_text_files: bool,
+    },
+    /// Trace a symbol: its definition and referencing chunks
+    Symbol {
+        /// Symbol name to trace (ignored when FILE_PATH is given)
+        name: Option<String>,
+        /// File path of an anchor whose declared symbols to list
+        file_path: Option<String>,
+        /// Line number for --file-path
+        #[arg(long)]
+        line: Option<usize>,
+        /// Path or git URL to search (defaults to current directory)
+        #[arg(long)]
+        path: Option<String>,
         /// Include non-code text files in the index
         #[arg(long = "include-text-files")]
         include_text_files: bool,
@@ -190,6 +209,36 @@ fn cli_main() {
                 eprintln!("No chunk found at {}:{}.", file_path, line);
                 process::exit(1);
             }
+        }
+        Some(Command::Symbol {
+            name,
+            file_path,
+            line,
+            path,
+            include_text_files,
+        }) => {
+            let path = path.unwrap_or_else(|| ".".to_string());
+            let index = match open_index(&path, None, include_text_files) {
+                Ok(index) => index,
+                Err(err) => {
+                    eprintln!("{}", err);
+                    process::exit(1);
+                }
+            };
+            let reports = if let Some(file_path) = file_path {
+                index.symbols_at(&file_path, line.unwrap_or(1))
+            } else {
+                let Some(name) = name else {
+                    eprintln!("Provide either a symbol `name` or `--file-path` + `line`.");
+                    process::exit(1);
+                };
+                index.symbol(&name).into_iter().collect()
+            };
+            if reports.is_empty() {
+                eprintln!("No symbols found.");
+                process::exit(1);
+            }
+            print!("{}", format_symbol_reports(&reports));
         }
         None => {
             let _ = Args::command().print_help();

@@ -18,7 +18,10 @@ use rust_mcp_sdk::{
 use crate::index::SembleIndex;
 use crate::index::dense::load_model;
 use crate::types::SearchMode;
-use crate::utils::{file_chunk_ranges, format_results, is_git_url, resolve_chunk_detailed, trace};
+use crate::utils::{
+    file_chunk_ranges, format_results, format_symbol_reports, is_git_url, resolve_chunk_detailed,
+    trace,
+};
 
 const CACHE_MAX_SIZE: usize = 10;
 
@@ -162,7 +165,29 @@ pub struct FindRelatedTool {
     pub top_k: Option<u32>,
 }
 
-tool_box!(SembleTools, [SearchTool, FindRelatedTool]);
+#[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
+#[mcp_tool(
+    name = "symbol",
+    description = "Trace a symbol across the codebase: its definition(s) and every chunk that references it. Provide either a symbol `name` (e.g. \"calculate_total\") or an anchor `file_path` + `line` to list the symbols declared there and their references.",
+    title = "Semble symbol trace",
+    idempotent_hint = true,
+    destructive_hint = false,
+    open_world_hint = true,
+    read_only_hint = true
+)]
+pub struct SymbolTool {
+    /// Symbol name to trace. Ignored when `file_path` + `line` are provided.
+    pub name: Option<String>,
+    /// File path (absolute or repo-relative) of an anchor to list symbols from.
+    pub file_path: Option<String>,
+    /// Line number within `file_path` (1-based).
+    pub line: Option<u32>,
+    /// Repository to search: an https:// or http:// git URL, or a local
+    /// directory path. Omit to search the server's default working directory.
+    pub repo: Option<String>,
+}
+
+tool_box!(SembleTools, [SearchTool, FindRelatedTool, SymbolTool]);
 
 impl SearchTool {
     fn call_tool(
@@ -254,6 +279,51 @@ impl FindRelatedTool {
     }
 }
 
+impl SymbolTool {
+    fn call_tool(
+        &self,
+        cache: &IndexCache,
+        default_source: Option<&str>,
+    ) -> Result<CallToolResult, String> {
+        let source = resolve_source(self.repo.as_deref(), default_source)?;
+        trace(format!("MCP symbol resolved source={}", source));
+        let index = cache.get_blocking(&source, None)?;
+        let reports = if let Some(file_path) = self.file_path.as_deref() {
+            index.symbols_at(file_path, self.line.unwrap_or(1) as usize)
+        } else {
+            let Some(name) = self.name.as_deref() else {
+                return Err(
+                    "Provide either `name` to trace a symbol, or `file_path` + `line` to \
+                     list the symbols declared at a location."
+                        .to_string(),
+                );
+            };
+            index.symbol(name).into_iter().collect()
+        };
+        if reports.is_empty() {
+            return Ok(CallToolResult::text_content(vec![TextContent::from(
+                if self.file_path.is_some() {
+                    format!(
+                        "No symbols found at {}:{}. The location may be inside a doc-language \
+                         file (markdown/json/yaml) or the file may not be indexed.",
+                        self.file_path.as_deref().unwrap_or_default(),
+                        self.line.unwrap_or(1)
+                    )
+                } else {
+                    format!(
+                        "No definition or usage found for {:?}. The symbol may not exist, or \
+                         the file defining it is not indexed.",
+                        self.name.as_deref().unwrap_or_default()
+                    )
+                },
+            )]));
+        }
+        Ok(CallToolResult::text_content(vec![TextContent::from(
+            format_symbol_reports(&reports),
+        )]))
+    }
+}
+
 fn resolve_source(repo: Option<&str>, default_source: Option<&str>) -> Result<String, String> {
     let Some(source) = repo.or(default_source) else {
         return Err(
@@ -307,7 +377,11 @@ impl ServerHandler for SembleServerHandler {
         Ok(ListToolsResult {
             meta: None,
             next_cursor: None,
-            tools: vec![SearchTool::tool(), FindRelatedTool::tool()],
+            tools: vec![
+                SearchTool::tool(),
+                FindRelatedTool::tool(),
+                SymbolTool::tool(),
+            ],
         })
     }
 
@@ -322,6 +396,9 @@ impl ServerHandler for SembleServerHandler {
                 tool.call_tool(&self.cache, self.default_source.as_deref())
             }
             SembleTools::FindRelatedTool(tool) => {
+                tool.call_tool(&self.cache, self.default_source.as_deref())
+            }
+            SembleTools::SymbolTool(tool) => {
                 tool.call_tool(&self.cache, self.default_source.as_deref())
             }
         };
@@ -358,7 +435,9 @@ pub async fn serve(
         },
         protocol_version: ProtocolVersion::V2025_11_25.into(),
         instructions: Some(
-            "Use search to find relevant code, then find_related to explore nearby implementations."
+            "Use search to find relevant code, then find_related to explore nearby \
+             implementations. Use symbol to trace a name to its definition and usages, or to \
+             list the symbols declared at a file:line anchor."
                 .into(),
         ),
         meta: None,

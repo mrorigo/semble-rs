@@ -5,5 +5,6 @@ pub mod file_walker;
 pub mod files;
 pub mod model;
 pub mod sparse;
+pub mod symbols;
 
-pub use engine::SembleIndex;
+pub use engine::{SembleIndex, SymbolRef, SymbolReport};
