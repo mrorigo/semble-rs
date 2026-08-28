@@ -31,6 +31,45 @@ fn cache_root() -> Option<PathBuf> {
     }
 }
 
+/// Returns the base directory under which per-repository index caches live.
+///
+/// # Returns
+///
+/// The configured cache root (`SEMBLE_CACHE_DIR`, else `~/.semble/index`), or
+/// `None` when caching is disabled via `SEMBLE_CACHE_DIR=none`.
+pub fn cache_root_dir() -> Option<PathBuf> {
+    cache_root()
+}
+
+/// Reports whether the on-disk cache is disabled (`SEMBLE_CACHE_DIR=none`).
+pub fn cache_root_disabled() -> bool {
+    cache_root().is_none()
+}
+
+/// Recursively computes the total size, in bytes, of every file under `dir`.
+pub fn dir_size(dir: &Path) -> u64 {
+    let mut total = 0;
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                total += dir_size(&path);
+            } else if let Ok(meta) = entry.metadata() {
+                total += meta.len();
+            }
+        }
+    }
+    total
+}
+
+/// Removes a cache directory and all of its contents, if it exists.
+pub fn delete_cache_dir(dir: &Path) -> Result<(), String> {
+    if dir.exists() {
+        fs::remove_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// The resolved identity of the embedding model, used to key the cache.
 ///
 /// Mirrors how [`crate::index::model::StaticModel::from_pretrained`] selects a
@@ -261,11 +300,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use tempfile::tempdir;
 
     use super::{
         CACHE_VERSION, FileRecord, Manifest, ManifestEntry, classify_dirty, content_hash,
-        load_blobs, save_blobs,
+        delete_cache_dir, dir_size, load_blobs, save_blobs,
     };
     use crate::index::file_walker::FileMeta;
     use crate::types::{Chunk, EMBED_DIM};
@@ -402,5 +442,26 @@ mod tests {
             read,
         );
         assert_eq!(dirty, vec!["a.rs".to_string()]);
+    }
+
+    #[test]
+    fn dir_size_sums_nested_files() {
+        let dir = tempdir().unwrap();
+        let sub = dir.path().join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(dir.path().join("a.bin"), vec![0u8; 10]).unwrap();
+        fs::write(sub.join("b.bin"), vec![0u8; 5]).unwrap();
+        assert_eq!(dir_size(dir.path()), 15);
+    }
+
+    #[test]
+    fn delete_cache_dir_removes_existing_and_tolerates_missing() {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("cache");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("x"), b"1").unwrap();
+        delete_cache_dir(&target).unwrap();
+        assert!(!target.exists());
+        delete_cache_dir(&target).unwrap();
     }
 }

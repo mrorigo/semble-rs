@@ -4,6 +4,7 @@ use std::process;
 
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 
+use crate::commands;
 use crate::index::SembleIndex;
 use crate::mcp::serve;
 use crate::stats::format_savings_report;
@@ -13,12 +14,13 @@ use crate::utils::{
 };
 
 const CLAUDE_FILE_PATH: &str = ".claude/agents/semble-search.md";
-const CLI_DISPATCH_ARGS: [&str; 9] = [
+const CLI_DISPATCH_ARGS: [&str; 10] = [
     "search",
     "find-related",
     "symbol",
     "init",
     "savings",
+    "index",
     "help",
     "-h",
     "--help",
@@ -117,6 +119,49 @@ enum Command {
         #[arg(long)]
         verbose: bool,
     },
+    /// Manage the persistent on-disk index cache
+    Index {
+        #[command(subcommand)]
+        sub: IndexCmd,
+    },
+}
+
+/// Subcommands under `semble index` for inspecting and managing the cache.
+#[derive(Subcommand)]
+enum IndexCmd {
+    /// Show cache and corpus status for an index
+    Status {
+        /// Path or git URL to inspect (defaults to the current directory)
+        path: Option<String>,
+        /// Git ref for git URL sources
+        #[arg(long = "ref")]
+        ref_name: Option<String>,
+        /// Include non-code text files (part of the cache key)
+        #[arg(long = "include-text-files")]
+        include_text_files: bool,
+        /// Build/seed the index and report full corpus statistics
+        #[arg(long)]
+        build: bool,
+    },
+    /// Remove the cached index for a single repository, or all of them
+    Clear {
+        /// Path or git URL whose cache to remove
+        path: Option<String>,
+        /// Git ref for git URL sources
+        #[arg(long = "ref")]
+        ref_name: Option<String>,
+        /// Include non-code text files (part of the cache key)
+        #[arg(long = "include-text-files")]
+        include_text_files: bool,
+        /// Remove the entire cache root instead of a single repository
+        #[arg(long)]
+        all: bool,
+        /// Do not prompt for confirmation when --all is used
+        #[arg(long)]
+        force: bool,
+    },
+    /// Print the cache root location and total on-disk size
+    Cache,
 }
 
 pub fn main() {
@@ -148,6 +193,41 @@ fn cli_main() {
     match args.command {
         Some(Command::Init { force }) => run_init(force),
         Some(Command::Savings { verbose }) => print!("{}", format_savings_report(None, verbose)),
+        Some(Command::Index { sub }) => match sub {
+            IndexCmd::Status {
+                path,
+                ref_name,
+                include_text_files,
+                build,
+            } => {
+                let path = path.unwrap_or_else(|| ".".to_string());
+                if let Err(err) =
+                    commands::run_status(&path, ref_name.as_deref(), include_text_files, build)
+                {
+                    eprintln!("{}", err);
+                    process::exit(1);
+                }
+            }
+            IndexCmd::Clear {
+                path,
+                ref_name,
+                include_text_files,
+                all,
+                force,
+            } => {
+                let result = if all {
+                    commands::run_clear_all(force)
+                } else {
+                    let path = path.unwrap_or_else(|| ".".to_string());
+                    commands::run_clear_one(&path, ref_name.as_deref(), include_text_files)
+                };
+                if let Err(err) = result {
+                    eprintln!("{}", err);
+                    process::exit(1);
+                }
+            }
+            IndexCmd::Cache => commands::run_cache_info(),
+        },
         Some(Command::Search {
             query,
             path,

@@ -1,5 +1,6 @@
 pub mod chunking;
 pub mod cli;
+pub mod commands;
 pub mod index;
 pub mod mcp;
 pub mod ranking;
