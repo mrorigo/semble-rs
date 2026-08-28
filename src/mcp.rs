@@ -73,7 +73,7 @@ impl IndexCache {
         }
 
         let built = if is_git_url(source) {
-            Arc::new(SembleIndex::from_git(
+            Arc::new(SembleIndex::from_git_cached(
                 source,
                 ref_name,
                 Some(self.model.clone()),
@@ -81,7 +81,7 @@ impl IndexCache {
                 self.include_text_files,
             )?)
         } else {
-            Arc::new(SembleIndex::from_path(
+            Arc::new(SembleIndex::from_path_cached(
                 source,
                 Some(self.model.clone()),
                 None,

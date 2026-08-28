@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::index::create::create_index_from_path;
+use crate::index::create::{create_index_from_path, create_index_incremental};
 use crate::index::dense::{SelectableBasicBackend, StaticModel, load_model};
+use crate::index::persist;
 use crate::index::sparse::Bm25Index;
 use crate::index::symbols::{SymbolIndex, SymbolOccurrence};
 use crate::search::{search_bm25, search_hybrid, search_semantic};
@@ -51,6 +52,22 @@ impl SembleIndex {
             .as_ref()
             .map(|r| compute_file_sizes(&chunks, r))
             .unwrap_or_default();
+        Self::from_parts(model, bm25_index, semantic_index, chunks, root, file_sizes)
+    }
+
+    /// Constructs an index from already-built pieces, taking `file_sizes`
+    /// directly instead of re-reading every file from disk.
+    ///
+    /// This is used by the cached builders which derive sizes from their walk
+    /// metadata, avoiding the per-load re-read `new` performs.
+    pub fn from_parts(
+        model: StaticModel,
+        bm25_index: Bm25Index,
+        semantic_index: SelectableBasicBackend,
+        chunks: Vec<Chunk>,
+        root: Option<PathBuf>,
+        file_sizes: HashMap<String, usize>,
+    ) -> Self {
         let (file_mapping, language_mapping) = populate_mapping(&chunks);
         let symbol_index = SymbolIndex::build(&chunks);
         Self {
@@ -152,6 +169,105 @@ impl SembleIndex {
         let (bm25, semantic, chunks) =
             create_index_from_path(&path, &model, extensions, include_text_files, Some(&path))?;
         Ok(Self::new(model, bm25, semantic, chunks, Some(path)))
+    }
+
+    /// Builds an index for a local path, reusing unchanged files from a
+    /// persistent cache.
+    ///
+    /// Equivalent to [`Self::from_path`] except that changed files are
+    /// re-chunked and re-embedded while unchanged files are reused from the
+    /// on-disk cache. When caching is disabled or the cache is unusable this
+    /// behaves like a fresh build.
+    pub fn from_path_cached(
+        path: impl AsRef<Path>,
+        model: Option<StaticModel>,
+        extensions: Option<&[&str]>,
+        include_text_files: bool,
+    ) -> Result<Self, String> {
+        let path = path.as_ref();
+        if !path.exists() {
+            return Err(format!("Path does not exist: {}", path.display()));
+        }
+        if !path.is_dir() {
+            return Err(format!("Path is not a directory: {}", path.display()));
+        }
+        let model = model.unwrap_or_else(|| load_model(None));
+        let path = path.canonicalize().map_err(|e| e.to_string())?;
+        let source_key = path.to_string_lossy().to_string();
+        let model_ref = persist::model_fingerprint();
+        let (bm25, semantic, chunks, file_sizes) = create_index_incremental(
+            &path,
+            &model,
+            extensions,
+            include_text_files,
+            Some(&path),
+            &source_key,
+            &model_ref,
+        )?;
+        Ok(Self::from_parts(
+            model,
+            bm25,
+            semantic,
+            chunks,
+            Some(path),
+            file_sizes,
+        ))
+    }
+
+    /// Builds an index for a git URL, reusing unchanged files from a persistent
+    /// cache keyed by `url@ref`.
+    ///
+    /// A fresh shallow clone is always taken (so references are correct), but
+    /// files unchanged since the last clone reuse their cached chunks and
+    /// embeddings rather than being re-processed.
+    pub fn from_git_cached(
+        url: &str,
+        ref_name: Option<&str>,
+        model: Option<StaticModel>,
+        extensions: Option<&[&str]>,
+        include_text_files: bool,
+    ) -> Result<Self, String> {
+        let tmp = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let clone_path = tmp.path().to_path_buf();
+        let mut cmd = Command::new("git");
+        cmd.args(["clone", "--depth", "1"]);
+        if let Some(r) = ref_name {
+            cmd.args(["--branch", r]);
+        }
+        cmd.args(["--", url, clone_path.to_str().unwrap()]);
+        let output = cmd.output().map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err(format!(
+                "git clone failed for {:?}: {}",
+                url,
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        let model = model.unwrap_or_else(|| load_model(None));
+        let path = clone_path.canonicalize().map_err(|e| e.to_string())?;
+        let source_key = match ref_name {
+            Some(r) => format!("{}@{}", url, r),
+            None => url.to_string(),
+        };
+        let model_ref = persist::model_fingerprint();
+        let (bm25, semantic, chunks, file_sizes) = create_index_incremental(
+            &path,
+            &model,
+            extensions,
+            include_text_files,
+            Some(&path),
+            &source_key,
+            &model_ref,
+        )?;
+        std::mem::forget(tmp);
+        Ok(Self::from_parts(
+            model,
+            bm25,
+            semantic,
+            chunks,
+            Some(path),
+            file_sizes,
+        ))
     }
 
     fn selector(

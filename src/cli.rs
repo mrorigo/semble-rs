@@ -64,6 +64,9 @@ enum Command {
         /// Include non-code text files in the index
         #[arg(long = "include-text-files")]
         include_text_files: bool,
+        /// Disable the persistent on-disk index cache
+        #[arg(long = "no-cache")]
+        no_cache: bool,
     },
     /// Find chunks related to the code at a given file and line
     FindRelated {
@@ -79,6 +82,9 @@ enum Command {
         /// Include non-code text files in the index
         #[arg(long = "include-text-files")]
         include_text_files: bool,
+        /// Disable the persistent on-disk index cache
+        #[arg(long = "no-cache")]
+        no_cache: bool,
     },
     /// Trace a symbol: its definition and referencing chunks
     Symbol {
@@ -95,6 +101,9 @@ enum Command {
         /// Include non-code text files in the index
         #[arg(long = "include-text-files")]
         include_text_files: bool,
+        /// Disable the persistent on-disk index cache
+        #[arg(long = "no-cache")]
+        no_cache: bool,
     },
     /// Install the semble-search agent file into .claude/agents/
     Init {
@@ -145,9 +154,10 @@ fn cli_main() {
             top_k,
             mode,
             include_text_files,
+            no_cache,
         }) => {
             let path = path.unwrap_or_else(|| ".".to_string());
-            let index = match open_index(&path, None, include_text_files) {
+            let index = match open_index(&path, None, include_text_files, !no_cache) {
                 Ok(index) => index,
                 Err(err) => {
                     eprintln!("{}", err);
@@ -174,9 +184,10 @@ fn cli_main() {
             path,
             top_k,
             include_text_files,
+            no_cache,
         }) => {
             let path = path.unwrap_or_else(|| ".".to_string());
-            let index = match open_index(&path, None, include_text_files) {
+            let index = match open_index(&path, None, include_text_files, !no_cache) {
                 Ok(index) => index,
                 Err(err) => {
                     eprintln!("{}", err);
@@ -216,9 +227,10 @@ fn cli_main() {
             line,
             path,
             include_text_files,
+            no_cache,
         }) => {
             let path = path.unwrap_or_else(|| ".".to_string());
-            let index = match open_index(&path, None, include_text_files) {
+            let index = match open_index(&path, None, include_text_files, !no_cache) {
                 Ok(index) => index,
                 Err(err) => {
                     eprintln!("{}", err);
@@ -268,9 +280,16 @@ fn open_index(
     path: &str,
     ref_name: Option<&str>,
     include_text_files: bool,
+    use_cache: bool,
 ) -> Result<SembleIndex, String> {
     if is_git_url(path) {
-        SembleIndex::from_git(path, ref_name, None, None, include_text_files)
+        if use_cache {
+            SembleIndex::from_git_cached(path, ref_name, None, None, include_text_files)
+        } else {
+            SembleIndex::from_git(path, ref_name, None, None, include_text_files)
+        }
+    } else if use_cache {
+        SembleIndex::from_path_cached(path, None, None, include_text_files)
     } else {
         SembleIndex::from_path(path, None, None, include_text_files)
     }
