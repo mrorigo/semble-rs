@@ -11,11 +11,6 @@ documentation = "https://docs.rs/semble-rs"
 keywords = ["mcp", "code-search", "semantic-search", "bm25", "tree-sitter"]
 categories = ["command-line-utilities", "development-tools"]
 exclude = [
-    "assets/model/embeddings.bin",
-    "assets/model/weights.bin",
-    "assets/model/tokenizer.json",
-    "assets/model/manifest.json",
-    "assets/model/*.download",
     "PUBLISH_PLAN.md",
     ".github",
 ]
