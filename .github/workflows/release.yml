@@ -149,7 +149,8 @@ jobs:
         run: |
           set -euo pipefail
           cd out
-          sort *.sha256 | xargs cat > checksums.sha256
+          cat *.sha256 | sed 's|dist/||g' | tr -d '\r' | sort -u > checksums.sha256
+          cat checksums.sha256
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
