@@ -137,15 +137,6 @@ fn resolve_local_or_hub(model_ref: &str) -> String {
     if path.exists() {
         return model_ref.to_string();
     }
-
-    let default_assets = Path::new("assets/model");
-    if (model_ref == DEFAULT_MODEL_ID || model_ref.is_empty())
-        && default_assets.exists()
-        && default_assets.join("model.safetensors").exists()
-    {
-        return default_assets.to_string_lossy().to_string();
-    }
-
     model_ref.to_string()
 }
 
