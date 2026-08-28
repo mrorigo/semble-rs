@@ -32,6 +32,37 @@ const DEFAULT_IGNORED_DIRS: &[&str] = &[
 ///
 /// A sorted vector of absolute paths to matching files.
 pub fn walk_files(root: &Path, extensions: &[String]) -> Vec<PathBuf> {
+    walk_files_with_meta(root, extensions)
+        .into_iter()
+        .map(|(path, _)| path)
+        .collect()
+}
+
+/// A file's change-detection metadata captured during a walk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileMeta {
+    /// File size in bytes.
+    pub size: u64,
+    /// Last-modified time in nanoseconds since the Unix epoch.
+    pub mtime_nanos: i128,
+}
+
+/// Recursively walks `root`, returning matching files together with their
+/// change-detection metadata.
+///
+/// Same discovery rules as [`walk_files`], but also captures each file's size
+/// and modification time so callers can detect which files changed between
+/// builds without re-reading content.
+///
+/// # Arguments
+///
+/// * `root` - The starting directory path to walk.
+/// * `extensions` - List of allowed file extensions to match.
+///
+/// # Returns
+///
+/// A sorted vector of `(absolute_path, FileMeta)` pairs for matching files.
+pub fn walk_files_with_meta(root: &Path, extensions: &[String]) -> Vec<(PathBuf, FileMeta)> {
     trace(format!(
         "walk_files root={} extensions={:?}",
         root.display(),
@@ -44,7 +75,7 @@ pub fn walk_files(root: &Path, extensions: &[String]) -> Vec<PathBuf> {
         .collect::<Vec<_>>();
     patterns.extend(load_patterns(root));
     walk(root, root, extensions, &patterns, &mut out);
-    out.sort();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
     out
 }
 
@@ -53,7 +84,7 @@ fn walk(
     directory: &Path,
     extensions: &[String],
     inherited_patterns: &[String],
-    out: &mut Vec<PathBuf>,
+    out: &mut Vec<(PathBuf, FileMeta)>,
 ) {
     let mut patterns = inherited_patterns.to_vec();
     patterns.extend(load_patterns(directory));
@@ -83,10 +114,25 @@ fn walk(
                     .is_some_and(|e| format!(".{}", e) == *ext)
             }) {
                 trace(format!("indexing file {}", path.display()));
-                out.push(path);
+                if let Some(meta) = file_meta(&path) {
+                    out.push((path, meta));
+                }
             }
         }
     }
+}
+
+fn file_meta(path: &Path) -> Option<FileMeta> {
+    let meta = fs::metadata(path).ok()?;
+    let mtime = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    Some(FileMeta {
+        size: meta.len(),
+        mtime_nanos: mtime.as_secs() as i128 * 1_000_000_000 + mtime.subsec_nanos() as i128,
+    })
 }
 
 fn load_patterns(directory: &Path) -> Vec<String> {
@@ -183,5 +229,18 @@ mod tests {
         fs::write(root.join("notes.txt"), "ignored\n").expect("write");
         let files = walk_files(root, &[".rs".to_string()]);
         assert_eq!(files, vec![root.join("main.rs")]);
+    }
+
+    #[test]
+    fn metadata_captures_size_and_positive_mtime() {
+        let dir = tempdir().expect("tempdir");
+        let root = dir.path();
+        fs::write(root.join("a.rs"), "fn a() {}\n").expect("write");
+        let pairs = super::walk_files_with_meta(root, &[".rs".to_string()]);
+        assert_eq!(pairs.len(), 1);
+        let (path, meta) = &pairs[0];
+        assert_eq!(path, &root.join("a.rs"));
+        assert_eq!(meta.size, 10);
+        assert!(meta.mtime_nanos > 0);
     }
 }

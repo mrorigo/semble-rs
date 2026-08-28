@@ -4,6 +4,7 @@ pub mod engine;
 pub mod file_walker;
 pub mod files;
 pub mod model;
+pub mod persist;
 pub mod sparse;
 pub mod symbols;
 
