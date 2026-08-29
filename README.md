@@ -119,7 +119,16 @@ semble search "save model to disk" ./my-project --mode bm25
 semble find-related src/auth.rs 42 ./my-project
 ```
 
-Both absolute and repository-relative paths are accepted. If no chunk exactly contains the given line, the nearest chunk in the same file is used automatically.
+Both absolute and repository-relative paths are accepted. If no chunk exactly contains the given line, the nearest chunk in the same file is used automatically — pure doc-comment-only chunks are skipped and the anchor snaps to the nearest chunk that declares a symbol (function, struct, etc.), so it lands on a syntactic unit rather than a `///` comment block.
+
+### Show surrounding source context
+
+`search` and `find-related` accept `--context-lines <N>` to also render N lines of surrounding source above and below each matched chunk, so multi-line control flow is visible without follow-up queries:
+
+```text
+semble search "auth flow" ./my-project --context-lines 5
+semble find-related src/auth.rs 42 ./my-project --context-lines 8
+```
 
 ### Initialize the Claude Code agent file
 
@@ -169,6 +178,9 @@ semble search "auth" . --no-cache
 
 - `search` — semantic, BM25, or hybrid retrieval with mode-specific retry hints on empty results
 - `find_related` — related-code lookup from a file path and line, with nearest-chunk fallback and actionable error hints
+- `symbol` — trace a symbol to its definition(s) and referencing chunks, either by name or by `file_path` + `line` anchor
+
+All three tools take an optional `repo` (a local directory path or git URL). When `repo` is omitted the server falls back to `--path` if set, otherwise to the server process's current working directory — so a single-root session can omit `repo` entirely. Whenever the source is resolved implicitly, the tool output states it explicitly (e.g. `Search results for: "query" ... in /path (repo omitted; defaulting to /path)`), so agents always know which repository was searched. `search` and `find_related` also accept an optional `context_lines` parameter (0–200, 0 disables) to render surrounding source around each result.
 
 Tool parameters and usage are described in the tool schemas themselves, so MCP clients can discover correct usage without external documentation.
 
