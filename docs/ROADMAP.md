@@ -49,3 +49,11 @@ Agents consume search as JSON. Today results are raw chunks with scores.
   definition-vs-usage classification, and a short synthesized rationale.
 - Much is partially present (`FindRelatedTool`, `rankScore`); this is an evolution
   rather than new machinery.
+
+## Recommended Order of Investment
+
+1. **#1 (incremental persistent index)** is the strongest remaining addition; it attacks
+   the core agent loop of *find → understand connections → edit* and builds naturally on
+   existing primitives.
+2. **#2** and **#3** are cheaper tactical wins.
+3. **#4** is a schema/UX layer on top of the retrieval results.
