@@ -81,9 +81,11 @@ pub struct ChunkResolution {
 ///
 /// First attempts an exact resolution via [`resolve_chunk`]. If the file
 /// contains indexed chunks but none contain `line`, the chunk whose range is
-/// closest to `line` is returned instead (preferring chunks that start at or
-/// after the line, since callers typically anchor on declarations). Returns
-/// `None` only if the file has no chunks in the index at all.
+/// closest to `line` is returned instead. Doc-comment-only chunks are excluded
+/// from the fallback, and on equal distance chunks that declare a symbol win,
+/// with the later chunk as the final tiebreak (since callers typically anchor
+/// on declarations, which follow their doc comments). Returns `None` only if
+/// the file has no non-trivial chunks in the index at all.
 pub fn resolve_chunk_detailed(
     chunks: &[Chunk],
     file_path: &str,
@@ -95,22 +97,60 @@ pub fn resolve_chunk_detailed(
     }
     chunks
         .iter()
-        .filter(|c| c.file_path == file_path)
+        .filter(|c| c.file_path == file_path && !is_trivial_doc_comment(c))
         .map(|c| {
             let distance = if line < c.start_line {
                 c.start_line - line
             } else {
                 line.saturating_sub(c.end_line)
             };
-            // Prefer later chunks on ties so anchors near a declaration
-            // resolve to the following definition.
-            (distance, std::cmp::Reverse(c.start_line), c)
+            let has_symbols = !c.symbols.is_empty();
+            // Prefer declaration chunks on equal distance so anchors resolve
+            // to a defined symbol; keep preferring later chunks as the final
+            // tiebreak so anchors near a declaration resolve forward.
+            (
+                distance,
+                std::cmp::Reverse(has_symbols),
+                std::cmp::Reverse(c.start_line),
+                c,
+            )
         })
-        .min_by_key(|(distance, start, _)| (*distance, *start))
-        .map(|(_, _, c)| ChunkResolution {
+        .min_by_key(|(distance, has_symbols, start, _)| (*distance, *has_symbols, *start))
+        .map(|(_, _, _, c)| ChunkResolution {
             chunk: c.clone(),
             exact: false,
         })
+}
+
+/// Returns whether a line begins a comment or markdown marker.
+///
+/// A marker line is one whose first non-whitespace characters start a `///` or
+/// `//` line comment, a `/*` or `*` block comment line, a `#` markdown heading,
+/// or an `<!--` HTML comment.
+fn is_marker_line(line: &str) -> bool {
+    let line = line.trim_start();
+    line.starts_with("///")
+        || line.starts_with("//")
+        || line.starts_with("/*")
+        || line.starts_with('*')
+        || line.starts_with('#')
+        || line.starts_with("<!--")
+}
+
+/// Returns whether a chunk holds only comment or markdown marker lines.
+///
+/// Such doc-comment-only chunks contain no executable code and make poor
+/// anchors for the nearest-chunk fallback, since callers anchor on
+/// declarations. Blank lines are ignored, and a chunk with no non-blank lines
+/// is not considered trivial.
+fn is_trivial_doc_comment(chunk: &Chunk) -> bool {
+    let non_blank: Vec<&str> = chunk
+        .content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    !non_blank.is_empty() && non_blank.iter().all(|line| is_marker_line(line))
 }
 
 /// Lists the indexed chunk line ranges for a file path.
@@ -276,8 +316,8 @@ fn format_code_block(ordinal: usize, header: String, chunk: &Chunk) -> String {
 mod tests {
     use super::{
         MAX_CONTENT_CHARS, fence_language, file_chunk_ranges, format_results,
-        format_symbol_reports, normalize_file_path, resolve_chunk, resolve_chunk_detailed,
-        truncate_content,
+        format_symbol_reports, is_marker_line, is_trivial_doc_comment, normalize_file_path,
+        resolve_chunk, resolve_chunk_detailed, truncate_content,
     };
     use crate::index::engine::{SymbolRef, SymbolReport};
     use crate::types::{Chunk, SearchMode, SearchResult, Symbol, SymbolKind};
@@ -291,6 +331,45 @@ mod tests {
             language: None,
             symbols: Vec::new(),
         }
+    }
+
+    fn content_chunk(file_path: &str, start_line: usize, end_line: usize, content: &str) -> Chunk {
+        let mut c = chunk(file_path, start_line, end_line);
+        c.content = content.to_string();
+        c
+    }
+
+    fn symbol(name: &str, line: usize) -> Symbol {
+        Symbol {
+            name: name.to_string(),
+            kind: SymbolKind::Function,
+            line,
+        }
+    }
+
+    #[test]
+    fn detects_marker_lines_and_trivial_chunks() {
+        assert!(is_marker_line("/// doc comment"));
+        assert!(is_marker_line("// line comment"));
+        assert!(is_marker_line("/* block open"));
+        assert!(is_marker_line("* block continuation"));
+        assert!(is_marker_line("# Heading"));
+        assert!(is_marker_line("<!-- html comment"));
+        assert!(is_marker_line("   /// indented doc"));
+        assert!(!is_marker_line("let x = 1;"));
+        assert!(is_trivial_doc_comment(&content_chunk(
+            "a.rs",
+            1,
+            4,
+            "/// Public API\n\n/* block */\n# note"
+        )));
+        assert!(!is_trivial_doc_comment(&content_chunk(
+            "a.rs",
+            1,
+            3,
+            "/// Docs\nfn real() {}"
+        )));
+        assert!(!is_trivial_doc_comment(&chunk("a.rs", 1, 4)));
     }
 
     #[test]
@@ -352,6 +431,58 @@ mod tests {
         let r = resolve_chunk_detailed(&chunks, "a.rs", 60).expect("resolved");
         assert!(!r.exact);
         assert_eq!(r.chunk.start_line, 40);
+    }
+
+    #[test]
+    fn fallback_skips_doc_comment_only_chunk() {
+        // The doc-comment chunk is nearest, but it holds only `///` lines so
+        // it is excluded and the sibling declaration chunk wins.
+        let doc = content_chunk("a.rs", 1, 3, "/// Public docs\n/// More detail");
+        let mut decl = content_chunk("a.rs", 20, 30, "pub fn foo() {}");
+        decl.symbols = vec![symbol("foo", 20)];
+        let chunks = vec![doc, decl];
+        let r = resolve_chunk_detailed(&chunks, "a.rs", 5).expect("resolved");
+        assert!(!r.exact);
+        assert_eq!(r.chunk.start_line, 20);
+        assert_eq!(r.chunk.symbols[0].name, "foo");
+    }
+
+    #[test]
+    fn fallback_unchanged_without_trivial_chunks() {
+        // Two executable chunks equidistant from the anchor; the later chunk
+        // still wins exactly as the old logic did.
+        let first = content_chunk("a.rs", 10, 20, "fn first() {}");
+        let second = content_chunk("a.rs", 40, 50, "fn second() {}");
+        let chunks = vec![first, second];
+        let r = resolve_chunk_detailed(&chunks, "a.rs", 30).expect("resolved");
+        assert!(!r.exact);
+        assert_eq!(r.chunk.start_line, 40);
+    }
+
+    #[test]
+    fn fallback_prefers_declaration_chunk_on_tie() {
+        // Equidistant chunks, but the earlier one declares a symbol and wins
+        // over the "prefer later" tiebreak.
+        let mut earlier = content_chunk("a.rs", 10, 20, "fn earlier() {}");
+        earlier.symbols = vec![symbol("earlier", 10)];
+        let later = content_chunk("a.rs", 40, 50, "fn later() {}");
+        let chunks = vec![earlier, later];
+        let r = resolve_chunk_detailed(&chunks, "a.rs", 30).expect("resolved");
+        assert!(!r.exact);
+        assert_eq!(r.chunk.start_line, 10);
+    }
+
+    #[test]
+    fn fallback_exact_hit_ignores_trivial_filter() {
+        // The anchor lies strictly inside a chunk, so exact resolution applies
+        // and the trivial-doc exclusion on the fallback path is never reached.
+        let doc = content_chunk("a.rs", 1, 3, "/// docs");
+        let mut decl = content_chunk("a.rs", 10, 20, "fn foo() {}");
+        decl.symbols = vec![symbol("foo", 10)];
+        let chunks = vec![doc, decl];
+        let r = resolve_chunk_detailed(&chunks, "a.rs", 15).expect("resolved");
+        assert!(r.exact);
+        assert_eq!(r.chunk.start_line, 10);
     }
 
     #[test]
