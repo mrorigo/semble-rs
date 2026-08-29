@@ -47,8 +47,8 @@ While highly optimized for CLI and MCP agent use-cases, the Rust port currently 
 
 1. **No Programmatic Python API / FFI Bindings**: The original library is directly importable in Python scripts (`import semble`). `Semble-RS` is built as an executable CLI and MCP server, and does not currently expose PyO3 Python bindings.
 2. **Dynamic Model Customization Boundaries**: In Python, you can easily load any Sentence Transformer or custom static Model2Vec variant on the fly. In `Semble-RS`, swapping models is supported for any static Model2Vec variant via `SEMBLE_MODEL_DIR` (a local model directory or a Hugging Face repo id), but dynamic transformer architectures (e.g., Sentence Transformers) are not supported.
-3. **Automated Remote Git Workspace Clones**: Python `semble` handles full automated downloading, cloning, and caching of remote Git URLs in temporary directories natively. In `Semble-RS`, indexing is highly optimized for local directories; full clone-and-cache automation for remote repositories is a work-in-progress.
-4. **Token Savings Logger (`savings.jsonl`)**: Python `semble` logs and appends agent token-efficiency savings (typically ~98% saved) to `~/.semble/savings.jsonl`. This auditing feature is not yet ported to `semble-rs`.
+3. **No File Watching**: Python `semble` watches repositories and automatically rebuilds the index within a session as files change. `semble-rs` re-detects changes on each run (via mtime + content-hash staleness against the persisted cache), but does not yet watch live during a long-running MCP session.
+4. **No Programmatic `savings` Accessor API**: Python `semble` exposes an auditing API for agent token savings. `semble-rs` records savings to `.semble/savings.jsonl` and prints reports via `semble savings`, but does not yet expose them through JSON-RPC tools.
 
 ## Repository layout
 
@@ -58,7 +58,7 @@ semble-rs/
 ├── README.md
 ├── AGENTS.md
 ├── assets/
-│   └── model/
+│   └── semble-search.md
 └── src/
 ```
 
@@ -119,7 +119,16 @@ semble search "save model to disk" ./my-project --mode bm25
 semble find-related src/auth.rs 42 ./my-project
 ```
 
-Both absolute and repository-relative paths are accepted. If no chunk exactly contains the given line, the nearest chunk in the same file is used automatically.
+Both absolute and repository-relative paths are accepted. If no chunk exactly contains the given line, the nearest chunk in the same file is used automatically — pure doc-comment-only chunks are skipped and the anchor snaps to the nearest chunk that declares a symbol (function, struct, etc.), so it lands on a syntactic unit rather than a `///` comment block.
+
+### Show surrounding source context
+
+`search` and `find-related` accept `--context-lines <N>` to also render N lines of surrounding source above and below each matched chunk, so multi-line control flow is visible without follow-up queries:
+
+```text
+semble search "auth flow" ./my-project --context-lines 5
+semble find-related src/auth.rs 42 ./my-project --context-lines 8
+```
 
 ### Initialize the Claude Code agent file
 
@@ -134,12 +143,44 @@ semble savings
 semble savings --verbose
 ```
 
+### Trace a symbol
+
+```text
+semble symbol add_one ./my-project
+semble symbol --file-path src/auth.rs --line 42 ./my-project
+```
+
+`symbol` lists a symbol's definition and the chunks that reference it, either by name or by anchoring on a file path and line.
+
+### Manage the on-disk index cache
+
+```text
+semble index status ./my-project          # cached? cache dir, size, file count
+semble index status ./my-project --build  # also seed/rebuild and show corpus stats
+semble index clear ./my-project           # drop one repository's cache
+semble index clear --all                  # wipe the entire cache root
+semble index cache                        # print cache root and total size
+```
+
+The `--include-text-files` flag and `--ref` (for git URLs) form part of the cache key, so use the same flags you would for a search. `semble index clear --all` prompts before deleting unless `--force` is given.
+
+### Bypassing the cache
+
+Every search-style command (`search`, `find-related`, `symbol`) accepts `--no-cache` to skip the on-disk cache and rebuild the index fresh:
+
+```text
+semble search "auth" . --no-cache
+```
+
 ## MCP server
 
 `semble-rs` naturally runs as an MCP (Model Context Protocol) server over `stdio` when launched without subcommands. It exposes tools to AI agents for:
 
 - `search` — semantic, BM25, or hybrid retrieval with mode-specific retry hints on empty results
 - `find_related` — related-code lookup from a file path and line, with nearest-chunk fallback and actionable error hints
+- `symbol` — trace a symbol to its definition(s) and referencing chunks, either by name or by `file_path` + `line` anchor
+
+All three tools take an optional `repo` (a local directory path or git URL). When `repo` is omitted the server falls back to `--path` if set, otherwise to the server process's current working directory — so a single-root session can omit `repo` entirely. Whenever the source is resolved implicitly, the tool output states it explicitly (e.g. `Search results for: "query" ... in /path (repo omitted; defaulting to /path)`), so agents always know which repository was searched. `search` and `find_related` also accept an optional `context_lines` parameter (0–200, 0 disables) to render surrounding source around each result.
 
 Tool parameters and usage are described in the tool schemas themselves, so MCP clients can discover correct usage without external documentation.
 
@@ -239,6 +280,8 @@ Under a realistic workspace workload (~300 files, ~2,500 chunks):
 
 For complete benchmarks and raw timing charts, refer to the full **[PERFORMANCE_REPORT.md](docs/PERFORMANCE_REPORT.md)**.
 
+> **Note on caches:** the figures above measure a *fresh, uncached full build* (the `from_path` path). With the persistent incremental cache enabled (the default), `semble-rs` re-chunks and re-embeds only changed files on subsequent runs, reusing the rest verbatim. In practice, indexing a ~5,500-line repository and answering a query on a warm cache completes in roughly **0.25 s** (cold, fresh cache: ~0.7 s). Search itself is dominated by the same millisecond-scale retrieval costs above.
+
 ### Running Benchmarks
 
 To run all benchmarks:
@@ -274,7 +317,8 @@ open target/criterion/report/index.html
 The Rust binary recognizes a few useful environment variables:
 
 - `SEMBLE_TRACE=1` — enable trace logging to stderr
-- `SEMBLE_MODEL_DIR` — point the encoder at a local model asset directory
+- `SEMBLE_MODEL_DIR` — point the encoder at a local static Model2Vec model directory or a Hugging Face repo id (e.g. `minishlab/potion-code-16M`)
+- `SEMBLE_CACHE_DIR` — override the on-disk index cache location (default `~/.semble/index`); set to `none` to disable caching entirely
 
 ## Troubleshooting
 

@@ -101,6 +101,68 @@ impl SembleIndex {
         normalize_file_path(self.root.as_deref(), file_path)
     }
 
+    /// Reads a window of source lines surrounding a chunk directly from disk.
+    ///
+    /// The returned window contains `context_lines` lines above the chunk's
+    /// `start_line`, the chunk's own lines (`start_line..=end_line`), and
+    /// `context_lines` lines below `end_line`, joined by newlines. A lone `...`
+    /// marker line separates the surrounding context from the chunk's own lines
+    /// on each side; the marker is omitted wherever the surrounding context is
+    /// absent (at the top of the file or past its end). The window is clamped
+    /// to the file bounds.
+    ///
+    /// Returns `None` when the index has no root directory or the file cannot
+    /// be read, so callers can fall back to chunk-only output.
+    ///
+    /// # Arguments
+    ///
+    /// * `rel_path` - A root-relative file path locating the source on disk.
+    /// * `start_line` - The chunk's first line (1-based).
+    /// * `end_line` - The chunk's last line (1-based).
+    /// * `context_lines` - Number of surrounding lines to include above and
+    ///   below the chunk.
+    ///
+    /// # Returns
+    ///
+    /// The expanded snippet text, or `None` if the file is unavailable.
+    pub fn read_snippet_context(
+        &self,
+        rel_path: &str,
+        start_line: usize,
+        end_line: usize,
+        context_lines: usize,
+    ) -> Option<String> {
+        let root = self.root.as_ref()?;
+        let path = root.join(rel_path);
+        let raw = std::fs::read_to_string(&path).ok()?;
+        let file_lines: Vec<&str> = raw
+            .lines()
+            .map(|line| line.strip_suffix('\r').unwrap_or(line))
+            .collect();
+        let total = file_lines.len();
+        if start_line == 0 || end_line < start_line {
+            return Some(String::new());
+        }
+        let chunk_start = (start_line - 1).min(total);
+        let chunk_end = end_line.min(total);
+        let above_start = chunk_start.saturating_sub(context_lines);
+        let below_end = chunk_end.saturating_add(context_lines).min(total);
+
+        let mut out: Vec<&str> = Vec::new();
+        if above_start < chunk_start {
+            out.extend_from_slice(&file_lines[above_start..chunk_start]);
+            out.push("...");
+        }
+        if chunk_start < chunk_end {
+            out.extend_from_slice(&file_lines[chunk_start..chunk_end]);
+        }
+        if chunk_end < below_end {
+            out.push("...");
+            out.extend_from_slice(&file_lines[chunk_end..below_end]);
+        }
+        Some(out.join("\n"))
+    }
+
     pub fn stats(&self) -> IndexStats {
         let mut languages = std::collections::BTreeMap::new();
         for chunk in &self.chunks {
@@ -465,4 +527,99 @@ fn compute_file_sizes(chunks: &[Chunk], root: &Path) -> HashMap<String, usize> {
         }
     }
     sizes
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use tempfile::tempdir;
+
+    use super::SembleIndex;
+    use crate::index::dense::{SelectableBasicBackend, StaticModel};
+    use crate::index::sparse::Bm25Index;
+
+    /// Builds an index over a temporary root, using empty backing indexes
+    /// since the context reader only needs the root path.
+    fn test_index(root: Option<PathBuf>) -> SembleIndex {
+        SembleIndex::from_parts(
+            StaticModel::from_pretrained("__offline_test_model__"),
+            Bm25Index::new(vec![]),
+            SelectableBasicBackend::new(vec![]),
+            vec![],
+            root,
+            std::collections::HashMap::new(),
+        )
+    }
+
+    /// Writes a 20-line file (one "line N" per line) into a temp dir.
+    fn fixture() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("a.rs");
+        let content = (1..=20)
+            .map(|n| format!("line {n}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&file, content).expect("write fixture");
+        (dir, file)
+    }
+
+    #[test]
+    fn window_includes_context_above_and_below_chunk() {
+        let (dir, _) = fixture();
+        let index = test_index(Some(dir.path().to_path_buf()));
+        let out = index
+            .read_snippet_context("a.rs", 5, 7, 2)
+            .expect("snippet");
+        let expected = "line 3\nline 4\n...\nline 5\nline 6\nline 7\n...\nline 8\nline 9";
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn window_clamps_at_top_of_file() {
+        let (dir, _) = fixture();
+        let index = test_index(Some(dir.path().to_path_buf()));
+        let out = index
+            .read_snippet_context("a.rs", 1, 2, 2)
+            .expect("snippet");
+        let expected = "line 1\nline 2\n...\nline 3\nline 4";
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn window_clamps_at_end_of_file() {
+        let (dir, _) = fixture();
+        let index = test_index(Some(dir.path().to_path_buf()));
+        let out = index
+            .read_snippet_context("a.rs", 18, 20, 2)
+            .expect("snippet");
+        let expected = "line 16\nline 17\n...\nline 18\nline 19\nline 20";
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn handles_crlf_line_endings() {
+        let dir = tempdir().expect("tempdir");
+        let file = dir.path().join("a.rs");
+        std::fs::write(&file, "one\r\ntwo\r\nthree").expect("write");
+        let index = test_index(Some(dir.path().to_path_buf()));
+        let out = index
+            .read_snippet_context("a.rs", 2, 2, 1)
+            .expect("snippet");
+        let expected = "one\n...\ntwo\n...\nthree";
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn returns_none_when_root_is_absent() {
+        let index = test_index(None);
+        assert_eq!(index.read_snippet_context("a.rs", 1, 2, 2), None);
+    }
+
+    #[test]
+    fn returns_none_when_file_is_unreadable() {
+        let (dir, _) = fixture();
+        let index = test_index(Some(dir.path().to_path_buf()));
+        assert_eq!(index.read_snippet_context("missing.rs", 1, 2, 2), None);
+    }
 }
