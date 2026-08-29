@@ -10,7 +10,8 @@ use crate::mcp::serve;
 use crate::stats::format_savings_report;
 use crate::types::SearchMode;
 use crate::utils::{
-    format_results, format_symbol_reports, is_git_url, resolve_chunk_detailed, trace,
+    build_expanded_context, format_results, format_symbol_reports, is_git_url,
+    resolve_chunk_detailed, trace,
 };
 
 const CLAUDE_FILE_PATH: &str = ".claude/agents/semble-search.md";
@@ -63,6 +64,9 @@ enum Command {
         /// Search strategy to use
         #[arg(short = 'm', long = "mode", value_enum, default_value_t = SearchModeArg::Hybrid)]
         mode: SearchModeArg,
+        /// Number of source lines of context to include above and below each result
+        #[arg(long = "context-lines")]
+        context_lines: Option<u32>,
         /// Include non-code text files in the index
         #[arg(long = "include-text-files")]
         include_text_files: bool,
@@ -81,6 +85,9 @@ enum Command {
         /// Number of results to return
         #[arg(short = 'k', long = "top-k", default_value_t = 5)]
         top_k: usize,
+        /// Number of source lines of context to include above and below each result
+        #[arg(long = "context-lines")]
+        context_lines: Option<u32>,
         /// Include non-code text files in the index
         #[arg(long = "include-text-files")]
         include_text_files: bool,
@@ -233,6 +240,7 @@ fn cli_main() {
             path,
             top_k,
             mode,
+            context_lines,
             include_text_files,
             no_cache,
         }) => {
@@ -249,11 +257,14 @@ fn cli_main() {
             if results.is_empty() {
                 println!("No results found.");
             } else {
+                let expanded = context_window(context_lines)
+                    .map(|n| build_expanded_context(&index, &results, n));
                 print!(
                     "{}",
                     format_results(
                         &format!("Search results for: {:?} (mode={:?})", query, mode),
-                        &results
+                        &results,
+                        expanded.as_ref()
                     )
                 );
             }
@@ -263,6 +274,7 @@ fn cli_main() {
             line,
             path,
             top_k,
+            context_lines,
             include_text_files,
             no_cache,
         }) => {
@@ -288,11 +300,14 @@ fn cli_main() {
                 if results.is_empty() {
                     println!("No related chunks found for {}:{}.", file_path, line);
                 } else {
+                    let expanded = context_window(context_lines)
+                        .map(|n| build_expanded_context(&index, &results, n));
                     print!(
                         "{}",
                         format_results(
                             &format!("Chunks related to {}:{}", file_path, line),
-                            &results
+                            &results,
+                            expanded.as_ref()
                         )
                     );
                 }
@@ -354,6 +369,15 @@ impl From<SearchModeArg> for SearchMode {
             SearchModeArg::Bm25 => SearchMode::Bm25,
         }
     }
+}
+
+/// Normalizes a CLI `--context-lines` value for context expansion.
+///
+/// Clamps the value to `0..=200` and treats `0` as disabled (None).
+fn context_window(context_lines: Option<u32>) -> Option<usize> {
+    context_lines
+        .map(|n| n.min(200) as usize)
+        .filter(|&n| n > 0)
 }
 
 fn open_index(

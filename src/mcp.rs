@@ -19,8 +19,8 @@ use crate::index::SembleIndex;
 use crate::index::dense::load_model;
 use crate::types::SearchMode;
 use crate::utils::{
-    file_chunk_ranges, format_results, format_symbol_reports, is_git_url, resolve_chunk_detailed,
-    trace,
+    build_expanded_context, file_chunk_ranges, format_results, format_symbol_reports, is_git_url,
+    resolve_chunk_detailed, trace,
 };
 
 const CACHE_MAX_SIZE: usize = 10;
@@ -139,6 +139,9 @@ pub struct SearchTool {
     pub mode: Option<String>,
     /// Maximum number of results to return (default 5).
     pub top_k: Option<u32>,
+    /// Number of source lines of context to include above and below each
+    /// result's chunk (0 disables context; capped at 200).
+    pub context_lines: Option<u32>,
 }
 
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
@@ -163,6 +166,9 @@ pub struct FindRelatedTool {
     pub repo: Option<String>,
     /// Maximum number of results to return (default 5).
     pub top_k: Option<u32>,
+    /// Number of source lines of context to include above and below each
+    /// result's chunk (0 disables context; capped at 200).
+    pub context_lines: Option<u32>,
 }
 
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
@@ -216,11 +222,11 @@ impl SearchTool {
                 empty_search_hint(&self.query, mode),
             )]));
         }
+        let header = format!("Search results for: {:?} (mode={:?})", self.query, mode);
+        let expanded =
+            context_window(self.context_lines).map(|n| build_expanded_context(&index, &results, n));
         Ok(CallToolResult::text_content(vec![TextContent::from(
-            format_results(
-                &format!("Search results for: {:?} (mode={:?})", self.query, mode),
-                &results,
-            ),
+            format_results(&header, &results, expanded.as_ref()),
         )]))
     }
 }
@@ -273,8 +279,10 @@ impl FindRelatedTool {
                 ),
             )]));
         }
+        let expanded =
+            context_window(self.context_lines).map(|n| build_expanded_context(&index, &results, n));
         Ok(CallToolResult::text_content(vec![TextContent::from(
-            format_results(&header, &results),
+            format_results(&header, &results, expanded.as_ref()),
         )]))
     }
 }
@@ -322,6 +330,16 @@ impl SymbolTool {
             format_symbol_reports(&reports),
         )]))
     }
+}
+
+/// Normalizes a tool's `context_lines` value for use with context expansion.
+///
+/// Clamps the value to `0..=200` and treats `0` as disabled (None). Returns
+/// `None` when context expansion is not requested.
+fn context_window(context_lines: Option<u32>) -> Option<usize> {
+    context_lines
+        .map(|n| n.min(200) as usize)
+        .filter(|&n| n > 0)
 }
 
 fn resolve_source(repo: Option<&str>, default_source: Option<&str>) -> Result<String, String> {
