@@ -4,6 +4,12 @@
 
 It is designed as a practical CLI and MCP server for local repositories and git URLs.
 
+## New in 0.3.0
+
+- **Implicit root resolution**: MCP tools now default `repo` to the server's `--path` or the process working directory when omitted. The resolved source is always surfaced in tool output (e.g. `... in /path (repo omitted; defaulting to /path)`).
+- **AST-aware chunk anchoring**: `find_related` snaps a line anchor to the nearest chunk that declares a symbol, skipping doc-comment-only chunks, so results land on syntactic units (functions, structs) rather than `///` comment blocks.
+- **Snippet context windowing**: `search` and `find_related` accept an optional `context_lines` (0–200), and the CLI gains `--context-lines <N>`, to render surrounding source around each result.
+
 ## Highlights
 
 - Native Rust binary with no Python runtime required at execution time
