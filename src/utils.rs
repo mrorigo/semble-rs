@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use crate::index::SembleIndex;
 use crate::index::engine::SymbolReport;
 use crate::types::{Chunk, SearchResult, SymbolKind};
 
@@ -229,7 +232,11 @@ pub fn trace(message: impl AsRef<str>) {
     }
 }
 
-pub fn format_results(header: &str, results: &[SearchResult]) -> String {
+pub fn format_results(
+    header: &str,
+    results: &[SearchResult],
+    expanded: Option<&HashMap<String, String>>,
+) -> String {
     let mut out = String::new();
     out.push_str(header);
     out.push('\n');
@@ -245,10 +252,53 @@ pub fn format_results(header: &str, results: &[SearchResult]) -> String {
             Some(lang) => out.push_str(&format!("```{}\n", lang)),
             None => out.push_str("```\n"),
         }
-        out.push_str(truncate_content(r.chunk.content.trim()).as_str());
+        let content = match expanded.and_then(|map| map.get(&r.chunk.location())) {
+            Some(snippet) => snippet.clone(),
+            None => truncate_content(r.chunk.content.trim()),
+        };
+        out.push_str(content.as_str());
         out.push_str("\n```\n\n");
     }
     out
+}
+
+/// Builds expanded source context for search results when `context_lines` is
+/// requested.
+///
+/// For each result, reads the source window around its chunk from disk via
+/// [`SembleIndex::read_snippet_context`] and returns a map keyed by the chunk's
+/// `location()` string, ready to pass as the `expanded` argument of
+/// [`format_results`]. Results whose files cannot be read from disk are
+/// omitted so they fall back to chunk-only rendering.
+///
+/// # Arguments
+///
+/// * `index` - The index whose root resolves the source files on disk.
+/// * `results` - The search results to expand.
+/// * `context_lines` - Number of surrounding lines to include per chunk.
+///
+/// # Returns
+///
+/// A map of chunk location to expanded snippet text.
+pub fn build_expanded_context(
+    index: &SembleIndex,
+    results: &[SearchResult],
+    context_lines: usize,
+) -> HashMap<String, String> {
+    results
+        .iter()
+        .filter_map(|r| {
+            let chunk = &r.chunk;
+            index
+                .read_snippet_context(
+                    &chunk.file_path,
+                    chunk.start_line,
+                    chunk.end_line,
+                    context_lines,
+                )
+                .map(|text| (chunk.location(), text))
+        })
+        .collect()
 }
 
 /// Renders one or more symbol reports into an agent-facing text block.
@@ -314,6 +364,8 @@ fn format_code_block(ordinal: usize, header: String, chunk: &Chunk) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::{
         MAX_CONTENT_CHARS, fence_language, file_chunk_ranges, format_results,
         format_symbol_reports, is_marker_line, is_trivial_doc_comment, normalize_file_path,
@@ -536,8 +588,35 @@ mod tests {
             score: 0.5,
             source: SearchMode::Hybrid,
         };
-        let out = format_results("header", &[result]);
+        let out = format_results("header", &[result], None);
         assert!(out.contains("```rust\nfn main() {}"));
+    }
+
+    #[test]
+    fn formats_results_with_expanded_context() {
+        let result = SearchResult {
+            chunk: Chunk {
+                content: "fn ignored() {}".to_string(),
+                file_path: "src/a.rs".to_string(),
+                start_line: 3,
+                end_line: 3,
+                language: None,
+                symbols: Vec::new(),
+            },
+            score: 0.4,
+            source: SearchMode::Hybrid,
+        };
+        let expanded = [(
+            "src/a.rs:3-3".to_string(),
+            "fn above() {}\n...\nfn body() {}\n...\nfn below() {}".to_string(),
+        )]
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+        let out = format_results("header", &[result], Some(&expanded));
+        assert!(out.contains("```rust\nfn above() {}",), "{out}");
+        assert!(out.contains("fn body() {}"), "{out}");
+        assert!(out.contains("fn below() {}"), "{out}");
+        assert!(!out.contains("fn ignored()"), "{out}");
     }
 
     #[test]
