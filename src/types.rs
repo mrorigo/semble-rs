@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+/// The fixed dimension of the hashing fallback encoder.
+///
+/// Real Model2Vec models use their native embedding dimension at runtime; only
+/// the deterministic hashing fallback in [`crate::index::model::hash_embed_text`]
+/// is fixed at 256 dimensions.
 pub const EMBED_DIM: usize = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,5 +83,9 @@ pub struct IndexStats {
 }
 
 pub trait Encoder: Send + Sync {
-    fn encode(&self, texts: &[String]) -> Vec<[f32; EMBED_DIM]>;
+    /// Encodes a batch of texts into dense normalized embeddings.
+    ///
+    /// The inner vectors may have any dimension; callers must not assume a
+    /// fixed width. Empty input returns an empty outer vector.
+    fn encode(&self, texts: &[String]) -> Vec<Vec<f32>>;
 }

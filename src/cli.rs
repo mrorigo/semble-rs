@@ -48,6 +48,10 @@ struct McpArgs {
     ref_name: Option<String>,
     #[arg(long = "include-text-files")]
     include_text_files: bool,
+    /// Model2Vec model id or local path (e.g. "mikeee/m2v-gemma-embedding-300m");
+    /// SEMBLE_MODEL_DIR env var still takes precedence
+    #[arg(long = "model")]
+    model: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -70,6 +74,9 @@ enum Command {
         /// Include non-code text files in the index
         #[arg(long = "include-text-files")]
         include_text_files: bool,
+        /// Model2Vec model id or local path (SEMBLE_MODEL_DIR env var takes precedence)
+        #[arg(long = "model")]
+        model: Option<String>,
         /// Disable the persistent on-disk index cache
         #[arg(long = "no-cache")]
         no_cache: bool,
@@ -91,6 +98,9 @@ enum Command {
         /// Include non-code text files in the index
         #[arg(long = "include-text-files")]
         include_text_files: bool,
+        /// Model2Vec model id or local path (SEMBLE_MODEL_DIR env var takes precedence)
+        #[arg(long = "model")]
+        model: Option<String>,
         /// Disable the persistent on-disk index cache
         #[arg(long = "no-cache")]
         no_cache: bool,
@@ -110,6 +120,9 @@ enum Command {
         /// Include non-code text files in the index
         #[arg(long = "include-text-files")]
         include_text_files: bool,
+        /// Model2Vec model id or local path (SEMBLE_MODEL_DIR env var takes precedence)
+        #[arg(long = "model")]
+        model: Option<String>,
         /// Disable the persistent on-disk index cache
         #[arg(long = "no-cache")]
         no_cache: bool,
@@ -146,6 +159,9 @@ enum IndexCmd {
         /// Include non-code text files (part of the cache key)
         #[arg(long = "include-text-files")]
         include_text_files: bool,
+        /// Model2Vec model id or local path (part of the cache key)
+        #[arg(long = "model")]
+        model: Option<String>,
         /// Build/seed the index and report full corpus statistics
         #[arg(long)]
         build: bool,
@@ -160,6 +176,9 @@ enum IndexCmd {
         /// Include non-code text files (part of the cache key)
         #[arg(long = "include-text-files")]
         include_text_files: bool,
+        /// Model2Vec model id or local path (part of the cache key)
+        #[arg(long = "model")]
+        model: Option<String>,
         /// Remove the entire cache root instead of a single repository
         #[arg(long)]
         all: bool,
@@ -184,11 +203,16 @@ pub fn main() {
 fn mcp_main() {
     let args = McpArgs::parse();
     trace(format!(
-        "starting MCP mode path={:?} ref={:?} include_text_files={}",
-        args.path, args.ref_name, args.include_text_files
+        "starting MCP mode path={:?} ref={:?} model={:?} include_text_files={}",
+        args.path, args.ref_name, args.model, args.include_text_files
     ));
     let runtime = tokio::runtime::Runtime::new().expect("create tokio runtime");
-    if let Err(err) = runtime.block_on(serve(args.path, args.ref_name, args.include_text_files)) {
+    if let Err(err) = runtime.block_on(serve(
+        args.path,
+        args.ref_name,
+        args.model,
+        args.include_text_files,
+    )) {
         eprintln!("{}", err);
         process::exit(1);
     }
@@ -205,12 +229,17 @@ fn cli_main() {
                 path,
                 ref_name,
                 include_text_files,
+                model,
                 build,
             } => {
                 let path = path.unwrap_or_else(|| ".".to_string());
-                if let Err(err) =
-                    commands::run_status(&path, ref_name.as_deref(), include_text_files, build)
-                {
+                if let Err(err) = commands::run_status(
+                    &path,
+                    ref_name.as_deref(),
+                    include_text_files,
+                    model.as_deref(),
+                    build,
+                ) {
                     eprintln!("{}", err);
                     process::exit(1);
                 }
@@ -219,6 +248,7 @@ fn cli_main() {
                 path,
                 ref_name,
                 include_text_files,
+                model,
                 all,
                 force,
             } => {
@@ -226,7 +256,12 @@ fn cli_main() {
                     commands::run_clear_all(force)
                 } else {
                     let path = path.unwrap_or_else(|| ".".to_string());
-                    commands::run_clear_one(&path, ref_name.as_deref(), include_text_files)
+                    commands::run_clear_one(
+                        &path,
+                        ref_name.as_deref(),
+                        include_text_files,
+                        model.as_deref(),
+                    )
                 };
                 if let Err(err) = result {
                     eprintln!("{}", err);
@@ -242,16 +277,18 @@ fn cli_main() {
             mode,
             context_lines,
             include_text_files,
+            model,
             no_cache,
         }) => {
             let path = path.unwrap_or_else(|| ".".to_string());
-            let index = match open_index(&path, None, include_text_files, !no_cache) {
-                Ok(index) => index,
-                Err(err) => {
-                    eprintln!("{}", err);
-                    process::exit(1);
-                }
-            };
+            let index =
+                match open_index(&path, None, include_text_files, model.as_deref(), !no_cache) {
+                    Ok(index) => index,
+                    Err(err) => {
+                        eprintln!("{}", err);
+                        process::exit(1);
+                    }
+                };
             let mode: SearchMode = mode.into();
             let results = index.search(&query, top_k, mode, None, None, None);
             if results.is_empty() {
@@ -276,16 +313,18 @@ fn cli_main() {
             top_k,
             context_lines,
             include_text_files,
+            model,
             no_cache,
         }) => {
             let path = path.unwrap_or_else(|| ".".to_string());
-            let index = match open_index(&path, None, include_text_files, !no_cache) {
-                Ok(index) => index,
-                Err(err) => {
-                    eprintln!("{}", err);
-                    process::exit(1);
-                }
-            };
+            let index =
+                match open_index(&path, None, include_text_files, model.as_deref(), !no_cache) {
+                    Ok(index) => index,
+                    Err(err) => {
+                        eprintln!("{}", err);
+                        process::exit(1);
+                    }
+                };
             let resolved_path = index.resolve_path(&file_path);
             if let Some(resolution) = resolve_chunk_detailed(&index.chunks, &resolved_path, line) {
                 if !resolution.exact {
@@ -322,16 +361,18 @@ fn cli_main() {
             line,
             path,
             include_text_files,
+            model,
             no_cache,
         }) => {
             let path = path.unwrap_or_else(|| ".".to_string());
-            let index = match open_index(&path, None, include_text_files, !no_cache) {
-                Ok(index) => index,
-                Err(err) => {
-                    eprintln!("{}", err);
-                    process::exit(1);
-                }
-            };
+            let index =
+                match open_index(&path, None, include_text_files, model.as_deref(), !no_cache) {
+                    Ok(index) => index,
+                    Err(err) => {
+                        eprintln!("{}", err);
+                        process::exit(1);
+                    }
+                };
             let reports = if let Some(file_path) = file_path {
                 index.symbols_at(&file_path, line.unwrap_or(1))
             } else {
@@ -384,18 +425,19 @@ fn open_index(
     path: &str,
     ref_name: Option<&str>,
     include_text_files: bool,
+    model: Option<&str>,
     use_cache: bool,
 ) -> Result<SembleIndex, String> {
     if is_git_url(path) {
         if use_cache {
-            SembleIndex::from_git_cached(path, ref_name, None, None, include_text_files)
+            SembleIndex::from_git_cached(path, ref_name, None, model, None, include_text_files)
         } else {
-            SembleIndex::from_git(path, ref_name, None, None, include_text_files)
+            SembleIndex::from_git(path, ref_name, None, model, None, include_text_files)
         }
     } else if use_cache {
-        SembleIndex::from_path_cached(path, None, None, include_text_files)
+        SembleIndex::from_path_cached(path, None, model, None, include_text_files)
     } else {
-        SembleIndex::from_path(path, None, None, include_text_files)
+        SembleIndex::from_path(path, None, model, None, include_text_files)
     }
 }
 

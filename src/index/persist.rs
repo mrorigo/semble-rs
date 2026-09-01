@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::index::model::DEFAULT_MODEL_ID;
-use crate::types::{Chunk, EMBED_DIM};
+use crate::index::model::resolve_model_ref;
+use crate::types::Chunk;
 use crate::utils::trace;
 
 /// Bumped whenever the on-disk cache layout or semantics change.
@@ -72,13 +72,16 @@ pub fn delete_cache_dir(dir: &Path) -> Result<(), String> {
 
 /// The resolved identity of the embedding model, used to key the cache.
 ///
-/// Mirrors how [`crate::index::model::StaticModel::from_pretrained`] selects a
-/// model: `SEMBLE_MODEL_DIR` takes precedence, otherwise the default model id.
-pub fn model_fingerprint() -> String {
-    std::env::var("SEMBLE_MODEL_DIR")
-        .ok()
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| DEFAULT_MODEL_ID.to_string())
+/// Mirrors [`crate::index::model::resolve_model_ref`]: `SEMBLE_MODEL_DIR` takes
+/// precedence, then the user-supplied `model_ref` flag, then the default model
+/// id.
+///
+/// # Arguments
+///
+/// * `model_ref` - Optional user-supplied HF repo id or local path (the CLI/MCP
+///   `--model` value).
+pub fn model_fingerprint(model_ref: Option<&str>) -> String {
+    resolve_model_ref(model_ref)
 }
 
 /// Computes a stable hex digest of a cache key.
@@ -166,25 +169,30 @@ pub fn load_file_records(dir: &Path) -> Option<Vec<FileRecord>> {
 
 /// Loads the full cached chunk corpus and its embeddings.
 ///
+/// The embedding dimension is inferred from the blob length divided by the
+/// number of expected embeddings, so caches built with any model dimension
+/// (e.g. the 256-dim hashing fallback or a 768-dim real model) load correctly.
+///
 /// # Returns
 ///
 /// `(chunks, embeddings)` where embeddings are parallel to `chunks`, or `None`
-/// if the blob files are absent or malformed.
-pub fn load_blobs(dir: &Path, expected: usize) -> Option<(Vec<Chunk>, Vec<[f32; EMBED_DIM]>)> {
+/// if the blob files are absent, malformed, or have a dimension inconsistent
+/// with the expected count.
+pub fn load_blobs(dir: &Path, expected: usize) -> Option<(Vec<Chunk>, Vec<Vec<f32>>)> {
     let chunks_raw = fs::read(dir.join("chunks.json")).ok()?;
     let chunks: Vec<Chunk> = serde_json::from_slice(&chunks_raw).ok()?;
     let emb_raw = fs::read(dir.join("embeddings.bin")).ok()?;
-    let dims = expected * EMBED_DIM;
-    if dims == 0 {
+    if expected == 0 {
         return Some((chunks, vec![]));
     }
-    if emb_raw.len() != dims * 4 || chunks.len() != expected {
+    if chunks.len() != expected || emb_raw.len() % (expected * 4) != 0 {
         return None;
     }
+    let dim = emb_raw.len() / (expected * 4);
     let mut embeddings = Vec::with_capacity(expected);
     for i in 0..expected {
-        let base = i * EMBED_DIM * 4;
-        let mut vec = [0.0f32; EMBED_DIM];
+        let base = i * dim * 4;
+        let mut vec = vec![0.0f32; dim];
         for (j, slot) in vec.iter_mut().enumerate() {
             let bytes = [
                 emb_raw[base + j * 4],
@@ -205,18 +213,19 @@ pub fn load_blobs(dir: &Path, expected: usize) -> Option<(Vec<Chunk>, Vec<[f32; 
 ///
 /// * `dir` - The cache directory; must already exist.
 /// * `chunks` - The full ordered chunk corpus.
-/// * `embeddings` - Embeddings parallel to `chunks`.
+/// * `embeddings` - Embeddings parallel to `chunks`; a flat `f32` stream in
+///   row-major order (dimension is recovered on load).
 /// * `records` - Per-file chunk ranges, in the same order as `chunks`.
 /// * `manifest` - The updated manifest to write.
 pub fn save_blobs(
     dir: &Path,
     chunks: &[Chunk],
-    embeddings: &[[f32; EMBED_DIM]],
+    embeddings: &[Vec<f32>],
     records: &[FileRecord],
     manifest: &Manifest,
 ) -> Result<(), String> {
     let chunks_raw = serde_json::to_vec(chunks).map_err(|e| e.to_string())?;
-    let mut emb_buf = Vec::with_capacity(embeddings.len() * EMBED_DIM * 4);
+    let mut emb_buf = Vec::with_capacity(embeddings.iter().map(|v| v.len()).sum::<usize>() * 4);
     for vec in embeddings {
         for v in vec {
             emb_buf.extend_from_slice(&v.to_le_bytes());
@@ -308,7 +317,7 @@ mod tests {
         delete_cache_dir, dir_size, load_blobs, save_blobs,
     };
     use crate::index::file_walker::FileMeta;
-    use crate::types::{Chunk, EMBED_DIM};
+    use crate::types::Chunk;
 
     fn chunk(path: &str, content: &str) -> Chunk {
         Chunk {
@@ -325,7 +334,7 @@ mod tests {
     fn blobs_round_trip() {
         let dir = tempdir().unwrap();
         let chunks = vec![chunk("a.rs", "fn a() {}"), chunk("b.rs", "fn b() {}")];
-        let embeddings = vec![[1.0f32; EMBED_DIM], [2.0f32; EMBED_DIM]];
+        let embeddings = vec![vec![1.0f32; 256], vec![2.0f32; 256]];
         let records = vec![
             FileRecord {
                 path: "a.rs".into(),
@@ -343,6 +352,24 @@ mod tests {
             files: Default::default(),
         };
         save_blobs(dir.path(), &chunks, &embeddings, &records, &manifest).unwrap();
+        let (loaded_chunks, loaded_embeds) = load_blobs(dir.path(), 2).unwrap();
+        assert_eq!(loaded_chunks, chunks);
+        assert_eq!(loaded_embeds, embeddings);
+    }
+
+    #[test]
+    fn blobs_round_trip_custom_dimension() {
+        let dir = tempdir().unwrap();
+        let chunks = vec![chunk("a.rs", "fn a() {}"), chunk("b.rs", "fn b() {}")];
+        let embeddings: Vec<Vec<f32>> = vec![
+            (0..768).map(|i| i as f32).collect(),
+            (100..868).map(|i| i as f32).collect(),
+        ];
+        let manifest = Manifest {
+            version: CACHE_VERSION,
+            files: Default::default(),
+        };
+        save_blobs(dir.path(), &chunks, &embeddings, &[], &manifest).unwrap();
         let (loaded_chunks, loaded_embeds) = load_blobs(dir.path(), 2).unwrap();
         assert_eq!(loaded_chunks, chunks);
         assert_eq!(loaded_embeds, embeddings);

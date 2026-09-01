@@ -28,7 +28,7 @@ use semble_rs::types::Chunk;
 /// A vector of parsed chunks.
 fn load_chunks_from_temp_dir(temp_dir: &TempDir) -> Vec<Chunk> {
     let model = load_model(None);
-    let index = SembleIndex::from_path(temp_dir.path(), Some(model), None, true)
+    let index = SembleIndex::from_path(temp_dir.path(), Some(model), None, None, true)
         .expect("Failed to build index for benchmark prep");
     index.chunks
 }
@@ -124,8 +124,9 @@ pub fn bench_end_to_end_indexing(c: &mut Criterion) {
     let small_dir = create_mock_corpus(CorpusConfig::SMALL).unwrap();
     group.bench_function("small", |b| {
         b.iter(|| {
-            let index = SembleIndex::from_path(small_dir.path(), Some(model.clone()), None, true)
-                .expect("Failed to build index");
+            let index =
+                SembleIndex::from_path(small_dir.path(), Some(model.clone()), None, None, true)
+                    .expect("Failed to build index");
             assert!(!index.chunks.is_empty());
         });
     });
@@ -134,8 +135,9 @@ pub fn bench_end_to_end_indexing(c: &mut Criterion) {
     let med_dir = create_mock_corpus(CorpusConfig::MEDIUM).unwrap();
     group.bench_function("medium", |b| {
         b.iter(|| {
-            let index = SembleIndex::from_path(med_dir.path(), Some(model.clone()), None, true)
-                .expect("Failed to build index");
+            let index =
+                SembleIndex::from_path(med_dir.path(), Some(model.clone()), None, None, true)
+                    .expect("Failed to build index");
             assert!(!index.chunks.is_empty());
         });
     });

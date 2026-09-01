@@ -1,24 +1,28 @@
-use crate::types::EMBED_DIM;
-
 pub use crate::index::model::{
     StaticModel, embed_chunks, hash_embed_text as embed_text, load_model,
 };
 
+/// A flat cosine-similarity dense vector backend over runtime-dimensional
+/// embeddings.
+///
+/// Vectors may have any consistent dimension (e.g. 256 for the hashing
+/// fallback, or a real model's native dimension such as 768); the backend never
+/// assumes a fixed width.
 #[derive(Debug, Clone)]
 pub struct SelectableBasicBackend {
-    vectors: Vec<[f32; EMBED_DIM]>,
+    vectors: Vec<Vec<f32>>,
     norms: Vec<f32>,
 }
 
 impl SelectableBasicBackend {
-    pub fn new(vectors: Vec<[f32; EMBED_DIM]>) -> Self {
-        let norms = vectors.iter().map(norm).collect();
+    pub fn new(vectors: Vec<Vec<f32>>) -> Self {
+        let norms = vectors.iter().map(|v| norm(v)).collect();
         Self { vectors, norms }
     }
 
-    fn cosine_distance(a: &[f32; EMBED_DIM], an: f32, b: &[f32; EMBED_DIM], bn: f32) -> f32 {
+    fn cosine_distance(a: &[f32], an: f32, b: &[f32], bn: f32) -> f32 {
         let mut dot = 0.0;
-        for i in 0..EMBED_DIM {
+        for i in 0..a.len() {
             dot += a[i] * b[i];
         }
         if an == 0.0 || bn == 0.0 {
@@ -30,7 +34,7 @@ impl SelectableBasicBackend {
 
     pub fn query(
         &self,
-        vectors: &[[f32; EMBED_DIM]],
+        vectors: &[Vec<f32>],
         k: usize,
         selector: Option<&[usize]>,
     ) -> Vec<(Vec<usize>, Vec<f32>)> {
@@ -72,6 +76,31 @@ impl SelectableBasicBackend {
     }
 }
 
-fn norm(v: &[f32; EMBED_DIM]) -> f32 {
+fn norm(v: &[f32]) -> f32 {
     v.iter().map(|x| x * x).sum::<f32>().sqrt()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SelectableBasicBackend;
+
+    #[test]
+    fn cosine_ranks_nearest_at_custom_dimension() {
+        let backend = SelectableBasicBackend::new(vec![
+            vec![1.0f32; 768],
+            vec![0.7f32; 768],
+            vec![-1.0f32; 768],
+        ]);
+        let query: Vec<Vec<f32>> = vec![vec![1.0f32; 768]];
+        let (indices, _) = backend.query(&query, 3, None).into_iter().next().unwrap();
+        assert_eq!(indices, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn cosine_handles_zero_vectors() {
+        let backend = SelectableBasicBackend::new(vec![vec![0.0f32; 768]]);
+        let query: Vec<Vec<f32>> = vec![vec![1.0f32; 768]];
+        let (_, scores) = backend.query(&query, 1, None).into_iter().next().unwrap();
+        assert_eq!(scores[0], 1.0);
+    }
 }

@@ -10,7 +10,7 @@ use crate::index::file_walker::{FileMeta, walk_files_with_meta};
 use crate::index::files::{detect_language, get_extensions};
 use crate::index::persist;
 use crate::index::sparse::build_index;
-use crate::types::{Chunk, EMBED_DIM, Encoder};
+use crate::types::{Chunk, Encoder};
 use crate::utils::trace;
 
 /// The artifacts produced by an index build: lexical, dense, chunks, and
@@ -165,7 +165,7 @@ struct Segment {
     mtime_nanos: i128,
     hash: String,
     chunks: Vec<Chunk>,
-    embeddings: Option<Vec<[f32; EMBED_DIM]>>,
+    embeddings: Option<Vec<Vec<f32>>>,
 }
 
 impl Segment {
@@ -176,7 +176,7 @@ impl Segment {
         mtime_nanos: i128,
         hash: String,
         chunks: Vec<Chunk>,
-        embeddings: Vec<[f32; EMBED_DIM]>,
+        embeddings: Vec<Vec<f32>>,
     ) -> Self {
         Self {
             rel,
@@ -220,7 +220,7 @@ fn assemble_segments(
     let mut dirty_iter = dirty_embeddings.into_iter();
 
     let mut final_chunks: Vec<Chunk> = Vec::new();
-    let mut final_embeddings: Vec<[f32; EMBED_DIM]> = Vec::new();
+    let mut final_embeddings: Vec<Vec<f32>> = Vec::new();
     let mut records: Vec<persist::FileRecord> = Vec::new();
     let mut file_sizes: HashMap<String, usize> = HashMap::new();
     let mut manifest_files: HashMap<String, persist::ManifestEntry> = HashMap::new();
