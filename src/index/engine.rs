@@ -180,6 +180,7 @@ impl SembleIndex {
     pub fn from_path(
         path: impl AsRef<Path>,
         model: Option<StaticModel>,
+        model_ref: Option<&str>,
         extensions: Option<&[&str]>,
         include_text_files: bool,
     ) -> Result<Self, String> {
@@ -191,7 +192,7 @@ impl SembleIndex {
         if !path.is_dir() {
             return Err(format!("Path is not a directory: {}", path.display()));
         }
-        let model = model.unwrap_or_else(|| load_model(None));
+        let model = model.unwrap_or_else(|| load_model(model_ref));
         let path = path.canonicalize().map_err(|e| e.to_string())?;
         let (bm25, semantic, chunks) =
             create_index_from_path(&path, &model, extensions, include_text_files, Some(&path))?;
@@ -202,6 +203,7 @@ impl SembleIndex {
         url: &str,
         ref_name: Option<&str>,
         model: Option<StaticModel>,
+        model_ref: Option<&str>,
         extensions: Option<&[&str]>,
         include_text_files: bool,
     ) -> Result<Self, String> {
@@ -225,7 +227,7 @@ impl SembleIndex {
                 String::from_utf8_lossy(&output.stderr).trim()
             ));
         }
-        let model = model.unwrap_or_else(|| load_model(None));
+        let model = model.unwrap_or_else(|| load_model(model_ref));
         let path = clone_path.canonicalize().map_err(|e| e.to_string())?;
         std::mem::forget(tmp);
         let (bm25, semantic, chunks) =
@@ -243,6 +245,7 @@ impl SembleIndex {
     pub fn from_path_cached(
         path: impl AsRef<Path>,
         model: Option<StaticModel>,
+        model_ref: Option<&str>,
         extensions: Option<&[&str]>,
         include_text_files: bool,
     ) -> Result<Self, String> {
@@ -253,10 +256,10 @@ impl SembleIndex {
         if !path.is_dir() {
             return Err(format!("Path is not a directory: {}", path.display()));
         }
-        let model = model.unwrap_or_else(|| load_model(None));
+        let model = model.unwrap_or_else(|| load_model(model_ref));
         let path = path.canonicalize().map_err(|e| e.to_string())?;
         let source_key = path.to_string_lossy().to_string();
-        let model_ref = persist::model_fingerprint();
+        let model_ref = persist::model_fingerprint(model_ref);
         let (bm25, semantic, chunks, file_sizes) = create_index_incremental(
             &path,
             &model,
@@ -286,6 +289,7 @@ impl SembleIndex {
         url: &str,
         ref_name: Option<&str>,
         model: Option<StaticModel>,
+        model_ref: Option<&str>,
         extensions: Option<&[&str]>,
         include_text_files: bool,
     ) -> Result<Self, String> {
@@ -305,13 +309,13 @@ impl SembleIndex {
                 String::from_utf8_lossy(&output.stderr).trim()
             ));
         }
-        let model = model.unwrap_or_else(|| load_model(None));
+        let model = model.unwrap_or_else(|| load_model(model_ref));
         let path = clone_path.canonicalize().map_err(|e| e.to_string())?;
         let source_key = match ref_name {
             Some(r) => format!("{}@{}", url, r),
             None => url.to_string(),
         };
-        let model_ref = persist::model_fingerprint();
+        let model_ref = persist::model_fingerprint(model_ref);
         let (bm25, semantic, chunks, file_sizes) = create_index_incremental(
             &path,
             &model,

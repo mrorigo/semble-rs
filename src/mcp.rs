@@ -27,15 +27,17 @@ const CACHE_MAX_SIZE: usize = 10;
 
 pub struct IndexCache {
     model: crate::index::dense::StaticModel,
+    model_ref: Option<String>,
     include_text_files: bool,
     entries: Mutex<HashMap<String, Arc<SembleIndex>>>,
     order: Mutex<VecDeque<String>>,
 }
 
 impl IndexCache {
-    pub fn new(include_text_files: bool) -> Self {
+    pub fn new(include_text_files: bool, model_ref: Option<String>) -> Self {
         Self {
-            model: load_model(None),
+            model: load_model(model_ref.as_deref()),
+            model_ref,
             include_text_files,
             entries: Mutex::new(HashMap::new()),
             order: Mutex::new(VecDeque::new()),
@@ -77,6 +79,7 @@ impl IndexCache {
                 source,
                 ref_name,
                 Some(self.model.clone()),
+                self.model_ref.as_deref(),
                 None,
                 self.include_text_files,
             )?)
@@ -84,6 +87,7 @@ impl IndexCache {
             Arc::new(SembleIndex::from_path_cached(
                 source,
                 Some(self.model.clone()),
+                self.model_ref.as_deref(),
                 None,
                 self.include_text_files,
             )?)
@@ -503,18 +507,23 @@ impl ServerHandler for SembleServerHandler {
 pub async fn serve(
     path: Option<String>,
     ref_name: Option<String>,
+    model: Option<String>,
     include_text_files: bool,
 ) -> SdkResult<()> {
     trace(format!(
-        "starting MCP server path={:?} ref_name={:?} include_text_files={}",
-        path, ref_name, include_text_files
+        "starting MCP server path={:?} ref_name={:?} model={:?} include_text_files={}",
+        path, ref_name, model, include_text_files
     ));
+    let model_description = format!(
+        "Native Rust semantic search for codebases. Embedding model: {}.",
+        crate::index::model::resolve_model_ref(model.as_deref())
+    );
     let server_details = InitializeResult {
         server_info: Implementation {
             name: "semble".into(),
             version: env!("CARGO_PKG_VERSION").into(),
             title: Some("Semble".into()),
-            description: Some("Native Rust semantic search for codebases.".into()),
+            description: Some(model_description),
             icons: vec![mcp_icon!(
                 src = "https://raw.githubusercontent.com/rust-mcp-stack/rust-mcp-sdk/main/assets/rust-mcp-icon.png",
                 mime_type = "image/png",
@@ -538,7 +547,7 @@ pub async fn serve(
     };
     let transport = StdioTransport::new(TransportOptions::default())?;
     let handler = SembleServerHandler {
-        cache: Arc::new(IndexCache::new(include_text_files)),
+        cache: Arc::new(IndexCache::new(include_text_files, model)),
         default_source: path,
     };
     if let Some(source) = handler.default_source.clone() {

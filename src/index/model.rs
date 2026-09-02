@@ -76,24 +76,13 @@ impl StaticModel {
 }
 
 impl Encoder for StaticModel {
-    fn encode(&self, texts: &[String]) -> Vec<[f32; EMBED_DIM]> {
+    fn encode(&self, texts: &[String]) -> Vec<Vec<f32>> {
         if texts.is_empty() {
             return vec![];
         }
 
         match self.backend.as_ref() {
-            ModelBackend::Real(model) => {
-                let embeddings = model.encode(texts);
-                embeddings
-                    .into_iter()
-                    .map(|vec| {
-                        let mut arr = [0.0f32; EMBED_DIM];
-                        let copy_len = vec.len().min(EMBED_DIM);
-                        arr[..copy_len].copy_from_slice(&vec[..copy_len]);
-                        arr
-                    })
-                    .collect()
-            }
+            ModelBackend::Real(model) => model.encode(texts),
             ModelBackend::Hashing => {
                 use rayon::prelude::*;
                 texts.par_iter().map(|text| hash_embed_text(text)).collect()
@@ -112,7 +101,37 @@ impl Encoder for StaticModel {
 ///
 /// A constructed `StaticModel` instance.
 pub fn load_model(model_path: Option<&str>) -> StaticModel {
-    StaticModel::from_pretrained(model_path.unwrap_or(DEFAULT_MODEL_ID))
+    StaticModel::from_pretrained(resolve_model_ref(model_path))
+}
+
+/// Resolves the effective model identity given an optional user-supplied ref.
+///
+/// Precedence is: `SEMBLE_MODEL_DIR` environment variable, then the explicit
+/// `model_ref`, then [`DEFAULT_MODEL_ID`]. This is the single source of truth
+/// used both for loading a model and for keying the on-disk cache, so the two
+/// never disagree about which model is active.
+///
+/// # Arguments
+///
+/// * `model_ref` - Optional user-supplied HF repo id or local path.
+///
+/// # Returns
+///
+/// The resolved model identity string.
+pub fn resolve_model_ref(model_ref: Option<&str>) -> String {
+    let env_override = std::env::var_os("SEMBLE_MODEL_DIR")
+        .map(|v| v.to_string_lossy().to_string())
+        .filter(|v| !v.is_empty());
+    resolve_model_ref_from_env(model_ref, env_override)
+}
+
+/// Pure precedence resolution for [`resolve_model_ref`], factored out for
+/// testability without mutating process-global environment variables.
+fn resolve_model_ref_from_env(model_ref: Option<&str>, env_override: Option<String>) -> String {
+    env_override
+        .filter(|v| !v.is_empty())
+        .or_else(|| model_ref.filter(|r| !r.is_empty()).map(String::from))
+        .unwrap_or_else(|| DEFAULT_MODEL_ID.to_string())
 }
 
 /// Encodes a list of code structural chunks into dense floating-point embeddings.
@@ -124,8 +143,8 @@ pub fn load_model(model_path: Option<&str>) -> StaticModel {
 ///
 /// # Returns
 ///
-/// A vector of 256-dimensional normalized floating-point arrays representing each chunk.
-pub fn embed_chunks(model: &impl Encoder, chunks: &[Chunk]) -> Vec<[f32; EMBED_DIM]> {
+/// A vector of normalized floating-point vectors (runtime-dimensional) for each chunk.
+pub fn embed_chunks(model: &impl Encoder, chunks: &[Chunk]) -> Vec<Vec<f32>> {
     if chunks.is_empty() {
         return vec![];
     }
@@ -140,7 +159,7 @@ fn resolve_local_or_hub(model_ref: &str) -> String {
     model_ref.to_string()
 }
 
-fn normalize(values: &mut [f32; EMBED_DIM]) {
+fn normalize(values: &mut [f32]) {
     let norm = values.iter().map(|v| v * v).sum::<f32>().sqrt();
     if norm > 0.0 {
         for value in values.iter_mut() {
@@ -159,12 +178,12 @@ fn normalize(values: &mut [f32; EMBED_DIM]) {
 ///
 /// # Returns
 ///
-/// A normalized 256-dimensional floating point representation.
-pub fn hash_embed_text(text: &str) -> [f32; EMBED_DIM] {
+/// A normalized [`EMBED_DIM`]-dimensional floating point representation.
+pub fn hash_embed_text(text: &str) -> Vec<f32> {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
-    let mut vec = [0.0f32; EMBED_DIM];
+    let mut vec = vec![0.0f32; EMBED_DIM];
     let tokens = crate::tokens::tokenize(text);
     if tokens.is_empty() {
         return vec;
@@ -181,7 +200,7 @@ pub fn hash_embed_text(text: &str) -> [f32; EMBED_DIM] {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_MODEL_ID, StaticModel};
+    use super::{DEFAULT_MODEL_ID, StaticModel, resolve_model_ref_from_env};
     use crate::types::Encoder;
 
     #[test]
@@ -202,5 +221,37 @@ mod tests {
             let norm = emb.iter().map(|v| v * v).sum::<f32>().sqrt();
             assert!((norm - 1.0).abs() < 1e-4);
         }
+    }
+
+    #[test]
+    fn resolve_model_ref_prefers_flag_over_default() {
+        assert_eq!(
+            resolve_model_ref_from_env(Some("mikeee/m2v-gemma-embedding-300m"), None),
+            "mikeee/m2v-gemma-embedding-300m"
+        );
+        assert_eq!(resolve_model_ref_from_env(None, None), DEFAULT_MODEL_ID);
+    }
+
+    #[test]
+    fn resolve_model_ref_env_wins_over_flag() {
+        assert_eq!(
+            resolve_model_ref_from_env(Some("flag-model"), Some("env-override-model".to_string())),
+            "env-override-model"
+        );
+        // An empty env value is treated as unset, so the flag wins.
+        assert_eq!(
+            resolve_model_ref_from_env(Some("flag-model"), Some(String::new())),
+            "flag-model"
+        );
+        assert_eq!(
+            resolve_model_ref_from_env(None, Some("env-only".to_string())),
+            "env-only"
+        );
+    }
+
+    #[test]
+    fn resolve_model_ref_empty_flag_falls_back_to_default() {
+        assert_eq!(resolve_model_ref_from_env(Some(""), None), DEFAULT_MODEL_ID);
+        assert_eq!(resolve_model_ref_from_env(Some("  "), None), "  ");
     }
 }

@@ -37,13 +37,15 @@ pub fn bench_search_bm25(c: &mut Criterion) {
     // Setup indexes
     let small_dir = create_mock_corpus(CorpusConfig::SMALL).unwrap();
     let small_idx =
-        SembleIndex::from_path(small_dir.path(), Some(model.clone()), None, true).unwrap();
+        SembleIndex::from_path(small_dir.path(), Some(model.clone()), None, None, true).unwrap();
 
     let med_dir = create_mock_corpus(CorpusConfig::MEDIUM).unwrap();
-    let med_idx = SembleIndex::from_path(med_dir.path(), Some(model.clone()), None, true).unwrap();
+    let med_idx =
+        SembleIndex::from_path(med_dir.path(), Some(model.clone()), None, None, true).unwrap();
 
     let large_dir = create_mock_corpus(CorpusConfig::LARGE).unwrap();
-    let large_idx = SembleIndex::from_path(large_dir.path(), Some(model), None, true).unwrap();
+    let large_idx =
+        SembleIndex::from_path(large_dir.path(), Some(model), None, None, true).unwrap();
 
     for &query in BENCH_QUERIES {
         group.bench_with_input(BenchmarkId::new("small", query), query, |b, q| {
@@ -83,10 +85,11 @@ pub fn bench_search_semantic(c: &mut Criterion) {
 
     let small_dir = create_mock_corpus(CorpusConfig::SMALL).unwrap();
     let small_idx =
-        SembleIndex::from_path(small_dir.path(), Some(model.clone()), None, true).unwrap();
+        SembleIndex::from_path(small_dir.path(), Some(model.clone()), None, None, true).unwrap();
 
     let med_dir = create_mock_corpus(CorpusConfig::MEDIUM).unwrap();
-    let med_idx = SembleIndex::from_path(med_dir.path(), Some(model.clone()), None, true).unwrap();
+    let med_idx =
+        SembleIndex::from_path(med_dir.path(), Some(model.clone()), None, None, true).unwrap();
 
     for &query in BENCH_QUERIES {
         group.bench_with_input(BenchmarkId::new("small", query), query, |b, q| {
@@ -118,10 +121,11 @@ pub fn bench_search_hybrid(c: &mut Criterion) {
 
     let small_dir = create_mock_corpus(CorpusConfig::SMALL).unwrap();
     let small_idx =
-        SembleIndex::from_path(small_dir.path(), Some(model.clone()), None, true).unwrap();
+        SembleIndex::from_path(small_dir.path(), Some(model.clone()), None, None, true).unwrap();
 
     let med_dir = create_mock_corpus(CorpusConfig::MEDIUM).unwrap();
-    let med_idx = SembleIndex::from_path(med_dir.path(), Some(model.clone()), None, true).unwrap();
+    let med_idx =
+        SembleIndex::from_path(med_dir.path(), Some(model.clone()), None, None, true).unwrap();
 
     for &query in BENCH_QUERIES {
         group.bench_with_input(BenchmarkId::new("small", query), query, |b, q| {
@@ -151,7 +155,7 @@ pub fn bench_search_topk_sweep(c: &mut Criterion) {
 
     let model = load_model(None);
     let med_dir = create_mock_corpus(CorpusConfig::MEDIUM).unwrap();
-    let med_idx = SembleIndex::from_path(med_dir.path(), Some(model), None, true).unwrap();
+    let med_idx = SembleIndex::from_path(med_dir.path(), Some(model), None, None, true).unwrap();
 
     let query = "save model checkpoint to disk";
 

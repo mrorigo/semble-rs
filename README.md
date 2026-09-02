@@ -52,7 +52,7 @@ This repository chunks code with **Tree-sitter** for structural AST boundaries i
 While highly optimized for CLI and MCP agent use-cases, the Rust port currently lacks some features of the parent Python repository:
 
 1. **No Programmatic Python API / FFI Bindings**: The original library is directly importable in Python scripts (`import semble`). `Semble-RS` is built as an executable CLI and MCP server, and does not currently expose PyO3 Python bindings.
-2. **Dynamic Model Customization Boundaries**: In Python, you can easily load any Sentence Transformer or custom static Model2Vec variant on the fly. In `Semble-RS`, swapping models is supported for any static Model2Vec variant via `SEMBLE_MODEL_DIR` (a local model directory or a Hugging Face repo id), but dynamic transformer architectures (e.g., Sentence Transformers) are not supported.
+2. **Dynamic Model Customization Boundaries**: In Python, you can easily load any Sentence Transformer or custom static Model2Vec variant on the fly. In `Semble-RS`, swapping models is supported for any static Model2Vec variant via `--model` or `SEMBLE_MODEL_DIR` (a local model directory or a Hugging Face repo id), but dynamic transformer architectures (e.g., Sentence Transformers) are not supported.
 3. **No File Watching**: Python `semble` watches repositories and automatically rebuilds the index within a session as files change. `semble-rs` re-detects changes on each run (via mtime + content-hash staleness against the persisted cache), but does not yet watch live during a long-running MCP session.
 4. **No Programmatic `savings` Accessor API**: Python `semble` exposes an auditing API for agent token savings. `semble-rs` records savings to `.semble/savings.jsonl` and prints reports via `semble savings`, but does not yet expose them through JSON-RPC tools.
 
@@ -102,6 +102,22 @@ To override the default model, point `SEMBLE_MODEL_DIR` at either:
 
 - a local directory containing a distilled Model2Vec model, or
 - a Hugging Face repo id (e.g., `minishlab/potion-base-8M`)
+
+### Selecting a custom model
+
+Model selection follows a fixed precedence: `SEMBLE_MODEL_DIR` (environment variable), then `--model`, then the default `minishlab/potion-code-16M`.
+
+Pass `--model` to any subcommand that builds an index to choose a different model2vec model for that invocation:
+
+```text
+semble search "instantiates a session" ./my-project --model mikeee/m2v-gemma-embedding-300m
+semble index status ./my-project --model mikeee/m2v-gemma-embedding-300m
+semble --model mikeee/m2v-gemma-embedding-300m --path ./my-project
+```
+
+The MCP server also accepts `--model` at startup (shared by every tool; there is no per-tool model parameter). The active model is surfaced in `semble index status` output and in the server's `initialize` description.
+
+semble-rs embeds with the chosen model's **native dimension** (e.g. 768 for `m2v-gemma-embedding-300m`); it never truncates to a fixed width. The on-disk index cache is keyed by the resolved model identity, so switching models never reuses embeddings built by another model.
 
 ## CLI
 
@@ -323,7 +339,7 @@ open target/criterion/report/index.html
 The Rust binary recognizes a few useful environment variables:
 
 - `SEMBLE_TRACE=1` — enable trace logging to stderr
-- `SEMBLE_MODEL_DIR` — point the encoder at a local static Model2Vec model directory or a Hugging Face repo id (e.g. `minishlab/potion-code-16M`)
+- `SEMBLE_MODEL_DIR` — point the encoder at a local static Model2Vec model directory or a Hugging Face repo id (e.g. `minishlab/potion-code-16M`); takes precedence over `--model` and the default
 - `SEMBLE_CACHE_DIR` — override the on-disk index cache location (default `~/.semble/index`); set to `none` to disable caching entirely
 
 ## Troubleshooting

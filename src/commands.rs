@@ -29,6 +29,7 @@ pub struct CacheLoc {
 /// * `handle` - A local directory path or a git URL.
 /// * `ref_name` - Optional git ref; forms the `url@ref` source key.
 /// * `include_text_files` - Whether text files are indexed; part of the key.
+/// * `model_ref` - Optional user-supplied model id or path; part of the key.
 ///
 /// # Errors
 ///
@@ -38,6 +39,7 @@ pub fn resolve_source_key(
     handle: &str,
     ref_name: Option<&str>,
     include_text_files: bool,
+    model_ref: Option<&str>,
 ) -> Result<CacheLoc, String> {
     let (source_key, is_git) = if is_git_url(handle) {
         let key = match ref_name {
@@ -59,7 +61,7 @@ pub fn resolve_source_key(
     let cache_dir = persist::cache_dir(
         &source_key,
         include_text_files,
-        &persist::model_fingerprint(),
+        &persist::model_fingerprint(model_ref),
     );
     Ok(CacheLoc {
         source_key,
@@ -98,9 +100,10 @@ pub fn run_status(
     handle: &str,
     ref_name: Option<&str>,
     include_text_files: bool,
+    model_ref: Option<&str>,
     build: bool,
 ) -> Result<(), String> {
-    let loc = resolve_source_key(handle, ref_name, include_text_files)?;
+    let loc = resolve_source_key(handle, ref_name, include_text_files, model_ref)?;
     if !build {
         if persist::cache_root_disabled() {
             println!("Cache is disabled (SEMBLE_CACHE_DIR=none). Indexes are rebuilt each run.");
@@ -111,6 +114,7 @@ pub fn run_status(
             return Ok(());
         };
         println!("Source:   {}", loc.source_key);
+        println!("Model:    {}", persist::model_fingerprint(model_ref));
         if dir.exists() {
             let manifest = persist::Manifest::load(dir).unwrap_or_default();
             println!("Status:   cached");
@@ -131,8 +135,15 @@ pub fn run_status(
         return Ok(());
     }
 
-    let index = build_index(&loc.source_key, loc.is_git, ref_name, include_text_files)?;
+    let index = build_index(
+        &loc.source_key,
+        loc.is_git,
+        ref_name,
+        include_text_files,
+        model_ref,
+    )?;
     let stats = index.stats();
+    println!("Model:    {}", persist::model_fingerprint(model_ref));
     print_stats(&loc.source_key, &stats);
     Ok(())
 }
@@ -142,8 +153,9 @@ pub fn run_clear_one(
     handle: &str,
     ref_name: Option<&str>,
     include_text_files: bool,
+    model_ref: Option<&str>,
 ) -> Result<(), String> {
-    let loc = resolve_source_key(handle, ref_name, include_text_files)?;
+    let loc = resolve_source_key(handle, ref_name, include_text_files, model_ref)?;
     let Some(dir) = &loc.cache_dir else {
         return Err("Cache is disabled (SEMBLE_CACHE_DIR=none); nothing to clear.".to_string());
     };
@@ -206,11 +218,19 @@ fn build_index(
     is_git: bool,
     ref_name: Option<&str>,
     include_text_files: bool,
+    model_ref: Option<&str>,
 ) -> Result<SembleIndex, String> {
     if is_git {
-        SembleIndex::from_git_cached(source_key, ref_name, None, None, include_text_files)
+        SembleIndex::from_git_cached(
+            source_key,
+            ref_name,
+            None,
+            model_ref,
+            None,
+            include_text_files,
+        )
     } else {
-        SembleIndex::from_path_cached(source_key, None, None, include_text_files)
+        SembleIndex::from_path_cached(source_key, None, model_ref, None, include_text_files)
     }
 }
 
@@ -250,14 +270,15 @@ mod tests {
 
     #[test]
     fn resolve_source_key_marks_git_urls() {
-        let loc = resolve_source_key("https://github.com/a/b.git", Some("main"), false).unwrap();
+        let loc =
+            resolve_source_key("https://github.com/a/b.git", Some("main"), false, None).unwrap();
         assert!(loc.is_git);
         assert_eq!(loc.source_key, "https://github.com/a/b.git@main");
     }
 
     #[test]
     fn resolve_source_key_marks_git_urls_without_ref() {
-        let loc = resolve_source_key("https://github.com/a/b.git", None, false).unwrap();
+        let loc = resolve_source_key("https://github.com/a/b.git", None, false, None).unwrap();
         assert!(loc.is_git);
         assert_eq!(loc.source_key, "https://github.com/a/b.git");
     }
@@ -265,15 +286,24 @@ mod tests {
     #[test]
     fn resolve_source_key_canonicalizes_local_path() {
         let dir = tempdir().unwrap();
-        let loc = resolve_source_key(dir.path().to_str().unwrap(), None, false).unwrap();
+        let loc = resolve_source_key(dir.path().to_str().unwrap(), None, false, None).unwrap();
         assert!(!loc.is_git);
         assert!(loc.cache_dir.is_some());
         assert!(loc.cache_dir.unwrap().to_str().unwrap().contains("-v1"));
     }
 
     #[test]
+    fn resolve_source_key_model_changes_cache_dir() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().to_str().unwrap();
+        let a = resolve_source_key(path, None, false, Some("model-a")).unwrap();
+        let b = resolve_source_key(path, None, false, Some("model-b")).unwrap();
+        assert_ne!(a.cache_dir, b.cache_dir);
+    }
+
+    #[test]
     fn resolve_source_key_errors_on_missing_path() {
-        assert!(resolve_source_key("/definitely/not/here", None, false).is_err());
+        assert!(resolve_source_key("/definitely/not/here", None, false, None).is_err());
     }
 
     #[test]
